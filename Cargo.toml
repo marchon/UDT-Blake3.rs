@@ -6,6 +6,7 @@ members = [
     "crates/udt-cli",
     "crates/udt-interop",
 ]
+# Pure-Rust transfer path only. udt-interop is optional (C++ reference peers).
 default-members = [
     "crates/udt-core",
     "crates/udt-socket",
@@ -16,7 +17,7 @@ default-members = [
 edition = "2021"
 rust-version = "1.75"
 license = "BSD-3-Clause"
-authors = ["UDT pure-Rust contributors"]
+authors = ["Marchon <Marchon@gmail.com>"]
 repository = "https://github.com/marchon/UDT-Blake3.rs"
 
 [workspace.dependencies]
