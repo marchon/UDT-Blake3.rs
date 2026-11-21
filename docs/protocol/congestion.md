@@ -33,6 +33,9 @@ When `recv_rate` is still 0, congestion avoidance **keeps** the current CWND
 ## Sender pacing
 
 `ReliabilityEngine::enqueue_app_data` advances a virtual send clock by one SND
-period per packet and caps how far ahead of wall time a single call may
-schedule (~2 ms). This avoids blasting a full CWND as one UDP microburst on
-WAN paths. RTO retransmission sends the oldest outstanding packet only.
+period per packet. When SND ≥ 50µs (typical WAN after slow start), only
+packets whose send time has arrived are emitted (one per call) so `dispatch`
+cannot turn a lookahead batch into a UDP microburst. When SND is smaller
+(localhost / early slow start), a ~2 ms lookahead burst of at most 32 packets
+keeps syscall overhead low. RTO retransmission sends the oldest outstanding
+packet only.

@@ -25,3 +25,4 @@ udt-socket = { path = "crates/udt-socket" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
 thiserror = "2"
 bytes = "1"
+socket2 = "0.6"

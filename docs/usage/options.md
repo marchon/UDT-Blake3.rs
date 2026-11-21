@@ -35,8 +35,8 @@ Defaults (`SocketOptionState::default`):
 
 | Kind | C++ / UDT name | Effect in Phase 5 |
 | --- | --- | --- |
-| `SndBuf` | `UDT_SNDBUF` | Stored (advisory). Clamped ≥ 1024. |
-| `RcvBuf` | `UDT_RCVBUF` | Stored (advisory). Clamped ≥ 1024. |
+| `SndBuf` | `UDT_SNDBUF` | Stored; applied to OS `SO_SNDBUF` on bind / set. Clamped ≥ 1024. |
+| `RcvBuf` | `UDT_RCVBUF` | Stored; applied to OS `SO_RCVBUF` on bind / set. Clamped ≥ 1024. |
 | `Rendezvous` | `UDT_RENDEZVOUS` | Stored; must be set in `Init`. Handshake path TBD. |
 | `Mss` | `UDT_MSS` | Payload size hint; applied to live `ReliabilityEngine` via `set_mss`. Clamped 64…64 KiB. |
 | `SndTimeo` | `UDT_SNDTIMEO` | Stored for send/flush-style waits. |

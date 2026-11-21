@@ -11,6 +11,7 @@ readme = "README.md"
 udt-core = { workspace = true }
 tokio = { workspace = true, optional = true }
 thiserror = { workspace = true }
+socket2 = { workspace = true }
 
 [features]
 default = ["tokio-rt"]

@@ -140,6 +140,16 @@ impl UdtSocket {
                     let _ = udp.set_read_timeout(t);
                 }
             }
+            UdtOption::SndBuf(n) => {
+                if let Some(udp) = &self.udp {
+                    apply_snd_buf(udp, n);
+                }
+            }
+            UdtOption::RcvBuf(n) => {
+                if let Some(udp) = &self.udp {
+                    apply_rcv_buf(udp, n);
+                }
+            }
             UdtOption::Mss(m) => {
                 if let Some(rel) = &mut self.rel {
                     rel.set_mss(m);
@@ -221,6 +231,8 @@ impl UdtSocket {
         }
         let udp = UdpSocket::bind(addr)?;
         udp.set_read_timeout(self.read_timeout)?;
+        apply_snd_buf(&udp, self.opts.snd_buf);
+        apply_rcv_buf(&udp, self.opts.rcv_buf);
         self.local = Some(udp.local_addr()?);
         self.udp = Some(Arc::new(udp));
         Ok(())
@@ -670,6 +682,19 @@ fn ipv4_octets(addr: SocketAddr) -> [u8; 4] {
         SocketAddr::V4(v4) => v4.ip().octets(),
         SocketAddr::V6(_) => [0, 0, 0, 0],
     }
+}
+
+/// Apply `UDT_SNDBUF` to the OS UDP send buffer. Best-effort: kernels may
+/// clamp or double the value; failures are ignored so option storage still wins.
+fn apply_snd_buf(udp: &UdpSocket, bytes: usize) {
+    let sock = socket2::SockRef::from(udp);
+    let _ = sock.set_send_buffer_size(bytes.max(1024));
+}
+
+/// Apply `UDT_RCVBUF` to the OS UDP receive buffer. Best-effort (see [`apply_snd_buf`]).
+fn apply_rcv_buf(udp: &UdpSocket, bytes: usize) {
+    let sock = socket2::SockRef::from(udp);
+    let _ = sock.set_recv_buffer_size(bytes.max(1024));
 }
 
 fn send_hs(udp: &UdpSocket, peer: SocketAddr, pkt: &HandshakePacket) -> Result<(), SocketError> {

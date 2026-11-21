@@ -316,12 +316,36 @@ impl ReliabilityEngine {
         let cwnd = self.cc.cwnd_pkts() as usize;
         let period_us = self.cc.sending_period_us().max(1);
         let period = Duration::from_micros(period_us);
-        // How far ahead of wall clock we may schedule in one call (~2 ms of send
-        // time, or at least one packet). Keeps localhost fast when period≈1µs.
-        let horizon = Duration::from_millis(2).max(period);
+        // Fast path (period < 50µs, typical localhost / early SS): allow a short
+        // lookahead burst so one enqueue call can emit many packets. Cap at 32
+        // to avoid ENOBUFS on macOS when period≈1µs.
+        //
+        // WAN path (period ≥ 50µs): emit only packets whose virtual send time
+        // has arrived. Lookahead batches were dispatched as UDP microbursts
+        // (dispatch sends the whole Vec back-to-back), which caused loss and
+        // stalled SND growth on the 138 path.
+        const STRICT_PACE_US: u64 = 50;
+        let strict_pace = period_us >= STRICT_PACE_US;
+        let horizon = if strict_pace {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(2).max(period)
+        };
+        let max_batch = if strict_pace {
+            1
+        } else {
+            ((horizon.as_micros() as u64) / period_us.max(1))
+                .max(1)
+                .min(32) as usize
+        };
         let mut slot = self.next_send_at.max(now);
-        while offset < data.len() && self.unacked.len() < cwnd {
-            if slot > now + horizon {
+        let mut batch = 0usize;
+        while offset < data.len() && self.unacked.len() < cwnd && batch < max_batch {
+            if strict_pace {
+                if slot > now {
+                    break;
+                }
+            } else if slot > now + horizon {
                 break;
             }
             let end = (offset + self.mss).min(data.len());
@@ -344,6 +368,7 @@ impl ReliabilityEngine {
             }));
             offset = end;
             slot += period;
+            batch += 1;
         }
         if !out.is_empty() {
             self.next_send_at = slot;

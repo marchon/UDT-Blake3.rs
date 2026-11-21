@@ -24,9 +24,10 @@ pub enum UdtOptionKind {
 /// Option values for [`crate::UdtSocket::set_option`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UdtOption {
-    /// Send buffer (bytes). Advisory in Phase 5; stored for getsockopt parity.
+    /// Send buffer (bytes). Stored and applied to the OS UDP `SO_SNDBUF` on
+    /// bind / when set after bind. Kernels may clamp the value.
     SndBuf(usize),
-    /// Receive buffer (bytes). Advisory.
+    /// Receive buffer (bytes). Stored and applied to OS UDP `SO_RCVBUF`.
     RcvBuf(usize),
     /// When true, future connect uses rendezvous (Phase 5 stores flag; HS path TBD).
     Rendezvous(bool),

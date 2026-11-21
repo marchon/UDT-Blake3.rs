@@ -15,8 +15,9 @@ pub fn set_option(&mut self, opt: UdtOption) -> Result<(), SocketError>
 ## 2. Semantics
 
 Apply one typed socket option (`setsockopt` analogue). Updates
-`SocketOptionState` and, when relevant, live UDP timeouts or the reliability
-engine (`Mss`, `MaxFlowWindow`, `RcvTimeo`).
+`SocketOptionState` and, when relevant, live UDP timeouts, OS UDP buffers
+(`SndBuf` / `RcvBuf` → `SO_SNDBUF` / `SO_RCVBUF`), or the reliability engine
+(`Mss`, `MaxFlowWindow`, `RcvTimeo`).
 
 ## 3. Preconditions / postconditions
 
@@ -28,6 +29,8 @@ engine (`Mss`, `MaxFlowWindow`, `RcvTimeo`).
 
 - `get_option` / `options()` reflect the new value.
 - `RcvTimeo` updates the bound UDP read timeout when already bound.
+- `SndBuf` / `RcvBuf` update OS `SO_SNDBUF` / `SO_RCVBUF` when already bound
+  (also applied automatically in `bind`).
 
 ## 4. Errors
 

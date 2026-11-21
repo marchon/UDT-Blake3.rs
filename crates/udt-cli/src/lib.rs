@@ -70,16 +70,16 @@ pub fn parse_addr(s: &str) -> Result<SocketAddr, CliError> {
 /// Listen on `addr`, accept one client, write the stream to `out`.
 pub fn listen_and_recv(addr: SocketAddr, out: &mut dyn Write) -> Result<u64, CliError> {
     let mut server = UdtSocket::new();
-    server.set_option(UdtOption::RcvTimeo(Some(Duration::from_millis(20))))?;
-    server.set_option(UdtOption::MaxFlowWindow(65_535))?;
-    server.set_option(UdtOption::RcvBuf(16 * 1024 * 1024))?;
+    tune_transfer(&mut server)?;
     server.bind(addr)?;
     let local = server.local_addr().unwrap();
     eprintln!("udtcat: listening on {local}");
     server.listen(8)?;
     let (mut child, peer) = server.accept()?;
     eprintln!("udtcat: accepted from {peer}");
+    // Child copied options at accept; refresh timeouts for the transfer loop.
     child.set_option(UdtOption::RcvTimeo(Some(Duration::from_millis(20))))?;
+    child.set_option(UdtOption::Mss(1400))?;
 
     let mut buf = vec![0u8; 1024 * 1024];
     let mut total = 0u64;
@@ -106,10 +106,7 @@ pub fn listen_and_recv(addr: SocketAddr, out: &mut dyn Write) -> Result<u64, Cli
 /// Connect to `peer` and send all bytes from `input`.
 pub fn connect_and_send(peer: SocketAddr, input: &mut dyn Read) -> Result<u64, CliError> {
     let mut client = UdtSocket::new();
-    client.set_option(UdtOption::RcvTimeo(Some(Duration::from_millis(20))))?;
-    client.set_option(UdtOption::SndTimeo(Some(Duration::from_secs(600))))?;
-    client.set_option(UdtOption::MaxFlowWindow(65_535))?;
-    client.set_option(UdtOption::SndBuf(16 * 1024 * 1024))?;
+    tune_transfer(&mut client)?;
     eprintln!("udtcat: connecting to {peer}");
     client.connect(peer)?;
     eprintln!("udtcat: connected");
@@ -170,6 +167,7 @@ fn tune_transfer(sock: &mut UdtSocket) -> Result<(), CliError> {
     sock.set_option(UdtOption::RcvTimeo(Some(Duration::from_millis(20))))?;
     sock.set_option(UdtOption::SndTimeo(Some(Duration::from_secs(600))))?;
     sock.set_option(UdtOption::MaxFlowWindow(65_535))?;
+    sock.set_option(UdtOption::Mss(1400))?;
     sock.set_option(UdtOption::SndBuf(16 * 1024 * 1024))?;
     sock.set_option(UdtOption::RcvBuf(16 * 1024 * 1024))?;
     Ok(())

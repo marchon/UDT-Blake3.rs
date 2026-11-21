@@ -21,6 +21,13 @@ fn main() {
     client
         .set_option(UdtOption::MaxFlowWindow(65_535))
         .unwrap();
+    client.set_option(UdtOption::Mss(1400)).unwrap();
+    client
+        .set_option(UdtOption::SndBuf(16 * 1024 * 1024))
+        .unwrap();
+    client
+        .set_option(UdtOption::RcvBuf(16 * 1024 * 1024))
+        .unwrap();
     client
         .set_option(UdtOption::SndTimeo(Some(Duration::from_secs(120))))
         .unwrap();
