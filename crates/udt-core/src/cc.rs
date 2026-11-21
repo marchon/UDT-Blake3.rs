@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 /// SYN interval used by native UDT rate control (10 ms), in microseconds.
 pub const UDT_SYN_US: u64 = 10_000;
 /// Minimum rate-increase factor per SYN (packets).
-pub const UDT_MIN_INC: f64 = 0.05;
+pub const UDT_MIN_INC: f64 = 0.1;
 /// Beta constant from the UDT rate-increase formula.
 pub const UDT_BETA: f64 = 0.000_001_5;
 /// Initial congestion window (packets).
@@ -16,9 +16,14 @@ pub const UDT_INIT_CWND: f64 = 16.0;
 /// Initial packet send period (microseconds). `1` ≈ “as fast as possible”.
 pub const UDT_INIT_PERIOD_US: f64 = 1.0;
 /// SND multiply on loss / timeout (UDT4 uses 1.125; gentler keeps WAN climbing).
-pub const UDT_LOSS_PERIOD_MULT: f64 = 1.05;
+pub const UDT_LOSS_PERIOD_MULT: f64 = 1.03;
 /// CWND factor applied once per loss event (⅞ ≈ small reduction, not a collapse).
 pub const UDT_LOSS_CWND_MULT: f64 = 0.875;
+/// After slow-start exit without recv_rate, cap seeded SND (µs) so a default
+/// 100 ms RTT does not start CA at multi-millisecond pacing.
+pub const UDT_SS_EXIT_PERIOD_CAP_US: f64 = 500.0;
+/// Per-SYN CWND growth cap toward the rate-based target.
+pub const UDT_CWND_GROW_PER_SYN: f64 = 48.0;
 
 /// Pluggable congestion control (maps to C++ `CCC`).
 pub trait CongestionControl: Send {
@@ -170,8 +175,26 @@ impl Udt4Cc {
         inc.max(UDT_MIN_INC)
     }
 
+    fn seed_period_after_ss_exit(&mut self) {
+        if self.recv_rate > 0 {
+            self.set_period(1_000_000.0 / f64::from(self.recv_rate));
+        } else {
+            let denom = self.cwnd.max(1.0);
+            let seeded = (self.rtt_us as f64 + UDT_SYN_US as f64) / denom;
+            self.set_period(seeded.min(UDT_SS_EXIT_PERIOD_CAP_US));
+        }
+    }
+
     fn update_snd_on_ack(&mut self) {
-        let inc = Self::compute_inc(self.bandwidth, self.period_us, self.mss);
+        let mut inc = Self::compute_inc(self.bandwidth, self.period_us, self.mss);
+        // Short flows spent most of an 8 MiB transfer climbing from ~700 µs.
+        // Boost inc while SND is still coarse so asymptote arrives sooner.
+        if self.period_us >= 200.0 {
+            inc *= 3.0;
+        } else if self.period_us >= 100.0 {
+            inc *= 2.0;
+        }
+        let inc = inc.max(UDT_MIN_INC);
         // SND = (SND * SYN) / (SND * inc + SYN)
         let syn = UDT_SYN_US as f64;
         let snd = self.period_us;
@@ -204,12 +227,7 @@ impl CongestionControl for Udt4Cc {
             }
             if self.cwnd >= self.max_cwnd {
                 self.slow_start = false;
-                if self.recv_rate > 0 {
-                    self.set_period(1_000_000.0 / f64::from(self.recv_rate));
-                } else {
-                    let denom = self.cwnd.max(1.0);
-                    self.set_period((self.rtt_us as f64 + UDT_SYN_US as f64) / denom);
-                }
+                self.seed_period_after_ss_exit();
             }
             return;
         }
@@ -223,7 +241,7 @@ impl CongestionControl for Udt4Cc {
             let target =
                 a / 1_000_000.0 * (self.rtt_us as f64 + UDT_SYN_US as f64) + 16.0;
             if target > self.cwnd {
-                self.set_cwnd((self.cwnd + 32.0).min(target));
+                self.set_cwnd((self.cwnd + UDT_CWND_GROW_PER_SYN).min(target));
             } else {
                 let floor = self.cwnd * UDT_LOSS_CWND_MULT;
                 self.set_cwnd(target.max(floor));
@@ -242,12 +260,7 @@ impl CongestionControl for Udt4Cc {
     fn on_loss(&mut self, loss_seqs: &[u32]) {
         if self.slow_start {
             self.slow_start = false;
-            if self.recv_rate > 0 {
-                self.set_period(1_000_000.0 / f64::from(self.recv_rate));
-            } else {
-                let denom = self.cwnd.max(1.0);
-                self.set_period((self.rtt_us as f64 + UDT_SYN_US as f64) / denom);
-            }
+            self.seed_period_after_ss_exit();
         }
 
         self.loss_since_ack = true;
@@ -291,13 +304,7 @@ impl CongestionControl for Udt4Cc {
     fn on_timeout(&mut self) {
         if self.slow_start {
             self.slow_start = false;
-            // Match on_loss exit: seed SND from RTT/CWND rather than mult×1µs.
-            if self.recv_rate > 0 {
-                self.set_period(1_000_000.0 / f64::from(self.recv_rate));
-            } else {
-                let denom = self.cwnd.max(1.0);
-                self.set_period((self.rtt_us as f64 + UDT_SYN_US as f64) / denom);
-            }
+            self.seed_period_after_ss_exit();
         } else {
             self.set_period(self.period_us * UDT_LOSS_PERIOD_MULT);
             self.set_cwnd(self.cwnd * UDT_LOSS_CWND_MULT);
@@ -426,8 +433,8 @@ mod tests {
         cc.set_snd_curr_seq(50);
         cc.last_dec_seq = 10;
         cc.on_loss(&[40]);
-        // 1000 * 1.05 = 1050; CWND 80 * 0.875 = 70
-        assert_eq!(cc.sending_period_us(), 1050);
+        // 1000 * 1.03 = 1030; CWND 80 * 0.875 = 70
+        assert_eq!(cc.sending_period_us(), 1030);
         assert_eq!(cc.cwnd_pkts(), 70);
     }
 
@@ -475,7 +482,7 @@ mod tests {
         cc.set_period(800.0);
         cc.set_cwnd(64.0);
         cc.on_timeout();
-        assert_eq!(cc.sending_period_us(), 840); // 800 * 1.05
+        assert_eq!(cc.sending_period_us(), 824); // 800 * 1.03
         assert_eq!(cc.cwnd_pkts(), 56); // 64 * 0.875
     }
 
@@ -487,8 +494,27 @@ mod tests {
         assert!(cc.slow_start);
         cc.on_timeout();
         assert!(!cc.slow_start);
-        // (40000+10000)/16 = 3125
-        assert_eq!(cc.sending_period_us(), 3125);
+        // (40000+10000)/16 = 3125, capped at UDT_SS_EXIT_PERIOD_CAP_US = 500
+        assert_eq!(cc.sending_period_us(), 500);
+    }
+
+    #[test]
+    fn early_climb_boost_reduces_coarse_period() {
+        let mut cc = Udt4Cc::new();
+        let t0 = Instant::now();
+        cc.set_clock(t0);
+        cc.slow_start = false;
+        cc.set_period(700.0);
+        cc.set_bandwidth(50_000);
+        cc.set_recv_rate(2_000);
+        cc.set_rtt_us(6_500);
+        cc.on_ack(100);
+        // With early-climb boost, 700µs should drop meaningfully in one SYN.
+        assert!(
+            cc.sending_period_us() < 600,
+            "period={}",
+            cc.sending_period_us()
+        );
     }
 
     #[test]

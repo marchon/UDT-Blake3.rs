@@ -421,15 +421,17 @@ impl ReliabilityEngine {
         out
     }
 
-    /// Poll timers (RTO → retransmit oldest outstanding packet).
+    /// Poll timers (RTO → retransmit a small prefix of outstanding packets).
     pub fn on_timer_poll(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
         let mut out = Vec::new();
         for kind in self.timers.poll(now) {
             if kind == TimerKind::Rto {
                 self.cc.on_timeout();
-                // UDT EXP path retransmits the oldest unacked packet — not the
-                // entire flight (that collapsed WAN throughput after any RTO).
-                out.extend(self.retransmit_oldest_unacked(now, timestamp));
+                // Retransmit a bounded oldest prefix. Single-packet RTO left
+                // deep head-of-line holes recovering for tens of seconds after
+                // an aggressive climb; full-flight rexmit reintroduced WAN
+                // microbursts. Cap matches NAK recovery.
+                out.extend(self.retransmit_oldest_unacked(now, timestamp, 16));
                 if !self.unacked.is_empty() {
                     self.arm_rto(now);
                 }
@@ -667,16 +669,24 @@ impl ReliabilityEngine {
         out
     }
 
-    fn retransmit_oldest_unacked(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
+    fn retransmit_oldest_unacked(
+        &mut self,
+        now: Instant,
+        timestamp: u32,
+        max_pkts: usize,
+    ) -> Vec<Outgoing> {
         let mut out = Vec::new();
-        if let Some((&seq, pkt)) = self.unacked.iter_mut().next() {
-            pkt.last_sent = now;
-            out.push(Outgoing::Data(DataPacket {
-                seq,
-                dest_sock_id: self.peer_sock_id,
-                timestamp,
-                payload: pkt.payload.clone(),
-            }));
+        let seqs: Vec<SeqNo> = self.unacked.keys().copied().take(max_pkts.max(1)).collect();
+        for seq in seqs {
+            if let Some(pkt) = self.unacked.get_mut(&seq) {
+                pkt.last_sent = now;
+                out.push(Outgoing::Data(DataPacket {
+                    seq,
+                    dest_sock_id: self.peer_sock_id,
+                    timestamp,
+                    payload: pkt.payload.clone(),
+                }));
+            }
         }
         out
     }
