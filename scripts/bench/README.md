@@ -45,4 +45,4 @@ Questions: open a GitHub issue. PRs that add bench logs should place them under
 
 ## License
 
-BSD-3-Clause © UDT pure-Rust contributors
+BSD-3-Clause © Marchon

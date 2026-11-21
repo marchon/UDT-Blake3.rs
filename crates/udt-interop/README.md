@@ -31,5 +31,5 @@ Questions: open an issue. PRs welcome for matrix cells with CI evidence under
 
 ## License
 
-BSD-3-Clause © UDT pure-Rust contributors. See [`LICENSE`](../../LICENSE) and
+BSD-3-Clause © Marchon. See [`LICENSE`](../../LICENSE) and
 [`NOTICE`](../../NOTICE) for vendored UDT4 attribution.

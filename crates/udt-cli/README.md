@@ -38,4 +38,4 @@ Questions: open an issue. PRs welcome when tests and docs match `docs/plan/TECH-
 
 ## License
 
-BSD-3-Clause © UDT pure-Rust contributors
+BSD-3-Clause © Marchon

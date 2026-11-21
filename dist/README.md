@@ -50,4 +50,4 @@ artifacts; refresh `dist/` only with release scripts.
 
 ## License
 
-BSD-3-Clause © UDT pure-Rust contributors
+BSD-3-Clause © Marchon
