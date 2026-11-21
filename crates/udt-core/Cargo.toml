@@ -7,8 +7,14 @@ license.workspace = true
 description = "Pure-Rust UDT protocol core: packets, timers, CC, state machine"
 readme = "README.md"
 
+[features]
+default = []
+## 64 KiB Blake3 block seal + WANT/HAVE pull recovery (hybrid with ACK).
+blake3-reliability = ["dep:blake3"]
+
 [dependencies]
 bytes = { workspace = true }
 thiserror = { workspace = true }
+blake3 = { workspace = true, optional = true }
 
 [dev-dependencies]

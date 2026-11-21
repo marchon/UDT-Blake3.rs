@@ -25,6 +25,9 @@ pub mod state;
 pub mod timer;
 pub mod wire;
 
+#[cfg(feature = "blake3-reliability")]
+pub mod blake3_block;
+
 pub use cc::{
     CongestionControl, FixedCc, Udt4Cc, UDT_BETA, UDT_INIT_CWND, UDT_INIT_PERIOD_US, UDT_MIN_INC,
     UDT_SYN_US,
@@ -49,4 +52,11 @@ pub use wire::{
     peek_is_control, Ack2Packet, AckPacket, DataPacket, NakPacket, ACK2_PACKET_LEN,
     ACK_FULL_PACKET_LEN, ACK_PACKET_LEN, CTRL_ACK, CTRL_ACK2, CTRL_NAK, DATA_HEADER_LEN,
     NAK_HEADER_LEN,
+};
+
+#[cfg(feature = "blake3-reliability")]
+pub use blake3_block::{
+    blake3_digest, Blake3BlockReceiver, Blake3BlockSender, Blake3RecvOut, BlockSealPacket,
+    HavePacket, WantPacket, BLAKE3_BLOCK_BYTES, BLOCK_SEAL_PACKET_LEN, CTRL_BLOCK_SEAL, CTRL_HAVE,
+    CTRL_WANT, HAVE_PACKET_LEN, WANT_BITMAP_BITS, WANT_PACKET_LEN,
 };

@@ -12,6 +12,8 @@ cargo build -p udt-core
 
 ```sh
 cargo test -p udt-core
+# Optional hybrid Blake3 64KiB seal + WANT/HAVE pull recovery:
+cargo test -p udt-core --features blake3-reliability
 ```
 
 ## Contributing

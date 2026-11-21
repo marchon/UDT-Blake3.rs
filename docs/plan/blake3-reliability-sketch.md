@@ -1,8 +1,16 @@
 # Blake3 realtime validation vs ACK/NAK — design sketch
 
-**Status:** feasibility notes only (no protocol change yet)  
+**Status:** prototype landed (feature `blake3-reliability`, off by default)  
 **Context:** WAN ISO path local→70.88.205.138; UDT **5.45 MiB/s**, SFTP **6.51 MiB/s** (commit `cf4874a`).  
 **Question:** Can Blake3 realtime validation replace ACK/NAK, with missed units re-requested and rebuilt?
+
+## Prototype (this tree)
+
+- Crate feature: `udt-core/blake3-reliability` → module [`blake3_block`](../../crates/udt-core/src/blake3_block.rs)
+- Wire: `BlockSeal` `0x10`, `Want` `0x11`, `Have` `0x12` (experimental; not UDT4)
+- APIs: `Blake3BlockSender` / `Blake3BlockReceiver` — seal every 64 KiB, WANT bitmap gaps, HAVE after Blake3 verify
+- **Not yet wired** into `ReliabilityEngine` / `udtcat` (ACK/NAK path unchanged when feature off)
+- Enable tests: `cargo test -p udt-core --features blake3-reliability`
 
 ## 1. What “Blake3 instead of ACK/NAK” can mean
 

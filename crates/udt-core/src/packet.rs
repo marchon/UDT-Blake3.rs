@@ -23,6 +23,12 @@ pub enum PacketType {
     Ack2,
     /// Control: message drop request.
     MsgDropReq,
+    /// Experimental: Blake3 block seal (sender → receiver), type 0x10.
+    BlockSeal,
+    /// Experimental: Blake3 WANT pull (receiver → sender), type 0x11.
+    Want,
+    /// Experimental: Blake3 HAVE (receiver verified block), type 0x12.
+    Have,
     /// Unknown / reserved control type.
     Other(u16),
 }
@@ -193,6 +199,9 @@ pub fn peek_type(buf: &[u8]) -> Result<PacketType, PacketError> {
         5 => PacketType::Shutdown,
         6 => PacketType::Ack2,
         7 => PacketType::MsgDropReq,
+        0x10 => PacketType::BlockSeal,
+        0x11 => PacketType::Want,
+        0x12 => PacketType::Have,
         other => PacketType::Other(other),
     })
 }
