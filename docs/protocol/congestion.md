@@ -9,22 +9,28 @@ Native UDT4 hybrid CC (`Udt4Cc`), following draft-gg-udt-03 / `CUDTCC`:
 
 ## Events
 
-- `on_ack` — slow start grows CWND; congestion avoidance updates CWND from
-  arrival rate and increases rate via the UDT `inc` formula when no recent loss
-- `on_loss` — exit slow start; multiply SND by 1.125 with UDT decrease bookkeeping
-- `on_timeout` — exit slow start; multiply SND by 1.125
+- `on_ack` — slow start grows CWND; congestion avoidance grows CWND from
+  arrival rate (never shrinks on ACK) and always runs the UDT `inc` formula
+  (NAK recovery does not freeze rate increases)
+- `on_loss` — exit slow start; multiply SND by 1.05; soft-cut CWND by ⅞
+- `on_timeout` — same gentler backoff as loss outside slow start
+- NAK rexmit — oldest outstanding listed loss only (forward path keeps sending)
 
 ## Constants
 
 - `UDT_SYN_US` = 10_000 (rate-control quantum)
 - `UDT_BETA` = 1.5e-6
-- `UDT_MIN_INC` = 0.01
+- `UDT_MIN_INC` = 0.05 (faster climb than stock 0.01)
+- `UDT_LOSS_PERIOD_MULT` = 1.05 (gentler than stock 1.125)
+- `UDT_LOSS_CWND_MULT` = 0.875 (⅞ soft window cut on loss / soft ACK shrink)
 - Initial CWND = 16, initial SND = 1µs
 
 SND is clamped to `[1, SYN]` µs. Full ACKs carry RTT / recv_rate / bandwidth;
 the sender applies them via `set_rtt_us` / `set_recv_rate` / `set_bandwidth`.
 When `recv_rate` is still 0, congestion avoidance **keeps** the current CWND
-(and grows by 1 per SYN) instead of pinning to 16.
+(and grows by 1 per SYN) instead of pinning to 16. With rate feedback, CWND
+grows toward the BDP target by at most +32 packets per SYN and shrinks by at
+most ⅛ per SYN.
 
 ## Plugging in
 

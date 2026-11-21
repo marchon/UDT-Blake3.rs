@@ -317,14 +317,15 @@ impl ReliabilityEngine {
         let period_us = self.cc.sending_period_us().max(1);
         let period = Duration::from_micros(period_us);
         // Fast path (period < 50µs, typical localhost / early SS): allow a short
-        // lookahead burst so one enqueue call can emit many packets. Cap at 32
-        // to avoid ENOBUFS on macOS when period≈1µs.
+        // lookahead burst so one enqueue call can emit many packets. Cap at 16
+        // (was 32) — smaller SS bursts cut the size of the first WAN loss hole.
         //
         // WAN path (period ≥ 50µs): emit only packets whose virtual send time
         // has arrived. Lookahead batches were dispatched as UDP microbursts
         // (dispatch sends the whole Vec back-to-back), which caused loss and
         // stalled SND growth on the 138 path.
         const STRICT_PACE_US: u64 = 50;
+        const MAX_SS_BURST: usize = 16;
         let strict_pace = period_us >= STRICT_PACE_US;
         let horizon = if strict_pace {
             Duration::ZERO
@@ -336,7 +337,7 @@ impl ReliabilityEngine {
         } else {
             ((horizon.as_micros() as u64) / period_us.max(1))
                 .max(1)
-                .min(32) as usize
+                .min(MAX_SS_BURST as u64) as usize
         };
         let mut slot = self.next_send_at.max(now);
         let mut batch = 0usize;
@@ -516,16 +517,26 @@ impl ReliabilityEngine {
     fn on_nak(&mut self, lost: &[SeqNo], now: Instant, timestamp: u32) -> Vec<Outgoing> {
         self.cc.set_snd_curr_seq(self.send_next);
         self.cc.on_loss(lost);
+        // Cap rexmits per NAK. A full-list blast is a UDP microburst; a single
+        // packet leaves large SS holes recovering for many RTTs (seen as multi-
+        // second stalls on WAN). Cap keeps recovery moving while the forward
+        // path continues to enqueue new data (CWND is not collapsed on ACK).
+        const MAX_NAK_REXMIT: usize = 16;
         let mut out = Vec::new();
-        for seq in lost {
-            if let Some(pkt) = self.unacked.get_mut(seq) {
+        let mut n = 0usize;
+        for &seq in lost {
+            if n >= MAX_NAK_REXMIT {
+                break;
+            }
+            if let Some(pkt) = self.unacked.get_mut(&seq) {
                 pkt.last_sent = now;
                 out.push(Outgoing::Data(DataPacket {
-                    seq: *seq,
+                    seq,
                     dest_sock_id: self.peer_sock_id,
                     timestamp,
                     payload: pkt.payload.clone(),
                 }));
+                n += 1;
             }
         }
         if !out.is_empty() {

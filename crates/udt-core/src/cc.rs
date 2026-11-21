@@ -8,13 +8,17 @@ use std::time::{Duration, Instant};
 /// SYN interval used by native UDT rate control (10 ms), in microseconds.
 pub const UDT_SYN_US: u64 = 10_000;
 /// Minimum rate-increase factor per SYN (packets).
-pub const UDT_MIN_INC: f64 = 0.01;
+pub const UDT_MIN_INC: f64 = 0.05;
 /// Beta constant from the UDT rate-increase formula.
 pub const UDT_BETA: f64 = 0.000_001_5;
 /// Initial congestion window (packets).
 pub const UDT_INIT_CWND: f64 = 16.0;
 /// Initial packet send period (microseconds). `1` ≈ “as fast as possible”.
 pub const UDT_INIT_PERIOD_US: f64 = 1.0;
+/// SND multiply on loss / timeout (UDT4 uses 1.125; gentler keeps WAN climbing).
+pub const UDT_LOSS_PERIOD_MULT: f64 = 1.05;
+/// CWND factor applied once per loss event (⅞ ≈ small reduction, not a collapse).
+pub const UDT_LOSS_CWND_MULT: f64 = 0.875;
 
 /// Pluggable congestion control (maps to C++ `CCC`).
 pub trait CongestionControl: Send {
@@ -210,23 +214,28 @@ impl CongestionControl for Udt4Cc {
             return;
         }
 
-        // Congestion avoidance: CWND = A*(RTT+SYN)+16 when receiver rate is known.
-        // When recv_rate is still 0 (feedback not wired / no full ACK yet), keep the
-        // existing window — never pin back to 16 (that capped WAN at ~0.55 MiB/s).
+        // Congestion avoidance: target CWND = A*(RTT+SYN)+16 when rate is known.
+        // Grow toward target with a per-SYN cap (avoids ballooning to hundreds of
+        // in-flight packets ahead of a loss hole). Shrink at most ⅞ per SYN so a
+        // transient recv_rate dip does not stall new transmits during NAK recovery.
         if self.recv_rate > 0 {
             let a = f64::from(self.recv_rate);
-            let cwnd = a / 1_000_000.0 * (self.rtt_us as f64 + UDT_SYN_US as f64) + 16.0;
-            self.set_cwnd(cwnd.max(2.0));
+            let target =
+                a / 1_000_000.0 * (self.rtt_us as f64 + UDT_SYN_US as f64) + 16.0;
+            if target > self.cwnd {
+                self.set_cwnd((self.cwnd + 32.0).min(target));
+            } else {
+                let floor = self.cwnd * UDT_LOSS_CWND_MULT;
+                self.set_cwnd(target.max(floor));
+            }
         } else if self.cwnd < self.max_cwnd {
             // Gentle growth without rate feedback so a post-loss session can recover.
             self.set_cwnd(self.cwnd + 1.0);
         }
 
-        if self.loss_since_ack {
-            self.loss_since_ack = false;
-            return;
-        }
-
+        // Keep increasing SND even after a recent NAK — do not freeze the forward
+        // rate while recovery retransmits run in parallel.
+        self.loss_since_ack = false;
         self.update_snd_on_ack();
     }
 
@@ -242,6 +251,9 @@ impl CongestionControl for Udt4Cc {
         }
 
         self.loss_since_ack = true;
+        // Small window reduction — enough to react, small enough that new data
+        // can still be in flight alongside retransmits.
+        self.set_cwnd(self.cwnd * UDT_LOSS_CWND_MULT);
 
         let first = loss_seqs.first().copied().unwrap_or(self.snd_curr_seq);
         // Sequence compare in 31-bit space: treat wrapping distance.
@@ -250,7 +262,7 @@ impl CongestionControl for Udt4Cc {
 
         if loss_after_last_dec || self.last_dec_seq == u32::MAX {
             self.last_dec_period = self.period_us;
-            self.set_period(self.period_us * 1.125);
+            self.set_period(self.period_us * UDT_LOSS_PERIOD_MULT);
             self.avg_nak_num = self.avg_nak_num * 0.875 + f64::from(self.nak_count) * 0.125;
             self.nak_count = 1;
             self.dec_count = 1;
@@ -270,7 +282,7 @@ impl CongestionControl for Udt4Cc {
         if prev < 5 {
             self.nak_count = self.nak_count.saturating_add(1);
             if self.dec_random > 0 && self.nak_count % self.dec_random == 0 {
-                self.set_period(self.period_us * 1.125);
+                self.set_period(self.period_us * UDT_LOSS_PERIOD_MULT);
                 self.last_dec_seq = self.snd_curr_seq;
             }
         }
@@ -279,7 +291,7 @@ impl CongestionControl for Udt4Cc {
     fn on_timeout(&mut self) {
         if self.slow_start {
             self.slow_start = false;
-            // Match on_loss exit: seed SND from RTT/CWND rather than 1.125×1µs.
+            // Match on_loss exit: seed SND from RTT/CWND rather than mult×1µs.
             if self.recv_rate > 0 {
                 self.set_period(1_000_000.0 / f64::from(self.recv_rate));
             } else {
@@ -287,7 +299,8 @@ impl CongestionControl for Udt4Cc {
                 self.set_period((self.rtt_us as f64 + UDT_SYN_US as f64) / denom);
             }
         } else {
-            self.set_period(self.period_us * 1.125);
+            self.set_period(self.period_us * UDT_LOSS_PERIOD_MULT);
+            self.set_cwnd(self.cwnd * UDT_LOSS_CWND_MULT);
         }
         self.loss_since_ack = true;
     }
@@ -399,19 +412,23 @@ mod tests {
         let before = cc.sending_period_us();
         cc.on_loss(&[90]);
         assert!(!cc.slow_start);
-        assert!(cc.sending_period_us() as f64 >= (before as f64) * 1.124);
+        assert!(
+            cc.sending_period_us() as f64 >= (before as f64) * (UDT_LOSS_PERIOD_MULT - 0.001)
+        );
     }
 
     #[test]
-    fn loss_decrease_vector_1_125() {
+    fn loss_decrease_vector_gentler_mult() {
         let mut cc = Udt4Cc::new();
         cc.slow_start = false;
         cc.set_period(1000.0);
+        cc.set_cwnd(80.0);
         cc.set_snd_curr_seq(50);
         cc.last_dec_seq = 10;
         cc.on_loss(&[40]);
-        // 1000 * 1.125 = 1125
-        assert_eq!(cc.sending_period_us(), 1125);
+        // 1000 * 1.05 = 1050; CWND 80 * 0.875 = 70
+        assert_eq!(cc.sending_period_us(), 1050);
+        assert_eq!(cc.cwnd_pkts(), 70);
     }
 
     #[test]
@@ -456,8 +473,10 @@ mod tests {
         let mut cc = Udt4Cc::new();
         cc.slow_start = false;
         cc.set_period(800.0);
+        cc.set_cwnd(64.0);
         cc.on_timeout();
-        assert_eq!(cc.sending_period_us(), 900); // 800 * 1.125
+        assert_eq!(cc.sending_period_us(), 840); // 800 * 1.05
+        assert_eq!(cc.cwnd_pkts(), 56); // 64 * 0.875
     }
 
     #[test]
@@ -486,6 +505,23 @@ mod tests {
         cc.on_ack(100);
         // Must not collapse back to 16 when feedback is missing.
         assert!(cc.cwnd_pkts() >= 64, "cwnd={}", cc.cwnd_pkts());
+    }
+
+    #[test]
+    fn ca_soft_shrinks_cwnd_when_recv_rate_dips() {
+        let mut cc = Udt4Cc::new();
+        let t0 = Instant::now();
+        cc.set_clock(t0);
+        cc.slow_start = false;
+        cc.set_cwnd(200.0);
+        cc.set_recv_rate(500); // target << 200 for typical RTT
+        cc.set_rtt_us(6_500);
+        cc.set_bandwidth(20_000);
+        cc.on_ack(1000);
+        let w = cc.cwnd_pkts();
+        // At most ⅛ reduction per SYN (200 * 0.875 = 175).
+        assert!(w >= 175, "cwnd shrank too hard: {w}");
+        assert!(w <= 200, "cwnd grew on rate dip: {w}");
     }
 
     #[test]
