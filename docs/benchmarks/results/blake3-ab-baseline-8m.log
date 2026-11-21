@@ -1,0 +1,13 @@
+=== BASELINE 8MiB ===
+probe: connect 70.88.205.138:19000
+probe: connected cwnd=Some(16) period=Some(1)
+t=0.20s sent=458752 rate=2.154 MiB/s cwnd=Some(54) period_us=Some(513) inflight_hint=cwnd
+t=0.41s sent=983040 rate=2.277 MiB/s cwnd=Some(41) period_us=Some(392) inflight_hint=cwnd
+t=0.62s sent=1638400 rate=2.535 MiB/s cwnd=Some(49) period_us=Some(317) inflight_hint=cwnd
+t=0.82s sent=2424832 rate=2.819 MiB/s cwnd=Some(58) period_us=Some(266) inflight_hint=cwnd
+t=1.02s sent=3342336 rate=3.116 MiB/s cwnd=Some(63) period_us=Some(231) inflight_hint=cwnd
+t=1.23s sent=4390912 rate=3.412 MiB/s cwnd=Some(72) period_us=Some(204) inflight_hint=cwnd
+t=1.43s sent=5570560 rate=3.704 MiB/s cwnd=Some(81) period_us=Some(188) inflight_hint=cwnd
+t=1.64s sent=6815744 rate=3.971 MiB/s cwnd=Some(80) period_us=Some(175) inflight_hint=cwnd
+t=1.84s sent=8126464 rate=4.220 MiB/s cwnd=Some(85) period_us=Some(163) inflight_hint=cwnd
+DONE sent=8388608 elapsed=1.879s rate=4.257 MiB/s final_cwnd=Some(90) final_period=Some(161)

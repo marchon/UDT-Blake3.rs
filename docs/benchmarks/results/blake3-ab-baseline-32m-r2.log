@@ -1,0 +1,35 @@
+=== BASELINE 32MiB run2 ===
+probe: connect 70.88.205.138:19000
+probe: connected cwnd=Some(16) period=Some(1)
+t=0.22s sent=393216 rate=1.704 MiB/s cwnd=Some(43) period_us=Some(571) inflight_hint=cwnd
+t=0.42s sent=786432 rate=1.770 MiB/s cwnd=Some(38) period_us=Some(430) inflight_hint=cwnd
+t=0.63s sent=1310720 rate=1.976 MiB/s cwnd=Some(41) period_us=Some(342) inflight_hint=cwnd
+t=0.84s sent=1966080 rate=2.227 MiB/s cwnd=Some(49) period_us=Some(281) inflight_hint=cwnd
+t=1.05s sent=2752512 rate=2.492 MiB/s cwnd=Some(55) period_us=Some(240) inflight_hint=cwnd
+t=1.27s sent=3670016 rate=2.767 MiB/s cwnd=Some(62) period_us=Some(210) inflight_hint=cwnd
+t=1.47s sent=4653056 rate=3.023 MiB/s cwnd=Some(66) period_us=Some(191) inflight_hint=cwnd
+t=1.67s sent=5701632 rate=3.258 MiB/s cwnd=Some(71) period_us=Some(178) inflight_hint=cwnd
+t=1.88s sent=6881280 rate=3.490 MiB/s cwnd=Some(74) period_us=Some(166) inflight_hint=cwnd
+t=2.09s sent=8126464 rate=3.710 MiB/s cwnd=Some(79) period_us=Some(156) inflight_hint=cwnd
+t=2.29s sent=9437184 rate=3.923 MiB/s cwnd=Some(83) period_us=Some(147) inflight_hint=cwnd
+t=2.50s sent=10813440 rate=4.125 MiB/s cwnd=Some(90) period_us=Some(139) inflight_hint=cwnd
+t=2.71s sent=12255232 rate=4.321 MiB/s cwnd=Some(92) period_us=Some(131) inflight_hint=cwnd
+t=2.91s sent=13762560 rate=4.513 MiB/s cwnd=Some(99) period_us=Some(125) inflight_hint=cwnd
+t=3.13s sent=14614528 rate=4.447 MiB/s cwnd=Some(56) period_us=Some(186) inflight_hint=cwnd
+t=3.34s sent=15532032 rate=4.431 MiB/s cwnd=Some(69) period_us=Some(189) inflight_hint=cwnd
+t=3.55s sent=16252928 rate=4.363 MiB/s cwnd=Some(75) period_us=Some(212) inflight_hint=cwnd
+t=3.76s sent=17235968 rate=4.374 MiB/s cwnd=Some(68) period_us=Some(192) inflight_hint=cwnd
+t=3.96s sent=18284544 rate=4.402 MiB/s cwnd=Some(71) period_us=Some(179) inflight_hint=cwnd
+t=4.16s sent=19398656 rate=4.445 MiB/s cwnd=Some(75) period_us=Some(167) inflight_hint=cwnd
+t=4.36s sent=20578304 rate=4.499 MiB/s cwnd=Some(81) period_us=Some(157) inflight_hint=cwnd
+t=4.57s sent=21889024 rate=4.567 MiB/s cwnd=Some(82) period_us=Some(147) inflight_hint=cwnd
+t=4.78s sent=23265280 rate=4.645 MiB/s cwnd=Some(91) period_us=Some(139) inflight_hint=cwnd
+t=4.98s sent=24707072 rate=4.728 MiB/s cwnd=Some(94) period_us=Some(132) inflight_hint=cwnd
+t=5.19s sent=25886720 rate=4.757 MiB/s cwnd=Some(115) period_us=Some(154) inflight_hint=cwnd
+t=5.40s sent=27197440 rate=4.808 MiB/s cwnd=Some(93) period_us=Some(145) inflight_hint=cwnd
+t=5.60s sent=28573696 rate=4.869 MiB/s cwnd=Some(92) period_us=Some(137) inflight_hint=cwnd
+t=5.80s sent=30015488 rate=4.936 MiB/s cwnd=Some(102) period_us=Some(130) inflight_hint=cwnd
+t=6.01s sent=31588352 rate=5.015 MiB/s cwnd=Some(102) period_us=Some(124) inflight_hint=cwnd
+t=6.22s sent=32768000 rate=5.023 MiB/s cwnd=Some(92) period_us=Some(167) inflight_hint=cwnd
+t=6.42s sent=33357824 rate=4.952 MiB/s cwnd=Some(104) period_us=Some(182) inflight_hint=cwnd
+DONE sent=33554432 elapsed=6.466s rate=4.949 MiB/s final_cwnd=Some(94) final_period=Some(180)

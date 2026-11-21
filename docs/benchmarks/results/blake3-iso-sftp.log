@@ -1,0 +1,6 @@
+SFTP start
+sftp> put /Users/marchon/Downloads/ubuntu-26.04.1-desktop-arm64.iso /SSD2/marchon/udt-bench/ubuntu-sftp.iso
+sftp> bye
+real 606.86
+user 8.09
+sys 26.47

@@ -1,0 +1,14 @@
+=== BLAKE3 8MiB ===
+probe: connect 70.88.205.138:19000
+probe: connected cwnd=Some(16) period=Some(1)
+t=0.21s sent=524288 rate=2.416 MiB/s cwnd=Some(73) period_us=Some(574) inflight_hint=cwnd
+t=0.41s sent=917504 rate=2.131 MiB/s cwnd=Some(38) period_us=Some(426) inflight_hint=cwnd
+t=0.62s sent=1441792 rate=2.229 MiB/s cwnd=Some(42) period_us=Some(343) inflight_hint=cwnd
+t=0.83s sent=2097152 rate=2.419 MiB/s cwnd=Some(51) period_us=Some(281) inflight_hint=cwnd
+t=1.04s sent=2883584 rate=2.651 MiB/s cwnd=Some(57) period_us=Some(240) inflight_hint=cwnd
+t=1.25s sent=3801088 rate=2.900 MiB/s cwnd=Some(63) period_us=Some(210) inflight_hint=cwnd
+t=1.45s sent=4784128 rate=3.141 MiB/s cwnd=Some(67) period_us=Some(191) inflight_hint=cwnd
+t=1.66s sent=5898240 rate=3.380 MiB/s cwnd=Some(74) period_us=Some(178) inflight_hint=cwnd
+t=1.87s sent=7077888 rate=3.602 MiB/s cwnd=Some(75) period_us=Some(166) inflight_hint=cwnd
+t=2.08s sent=8323072 rate=3.810 MiB/s cwnd=Some(80) period_us=Some(155) inflight_hint=cwnd
+DONE sent=8388608 elapsed=2.098s rate=3.813 MiB/s final_cwnd=Some(80) final_period=Some(155)

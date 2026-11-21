@@ -17,7 +17,7 @@ edition = "2021"
 rust-version = "1.75"
 license = "BSD-3-Clause"
 authors = ["UDT pure-Rust contributors"]
-repository = "https://github.com/example/udt-pure"
+repository = "https://github.com/marchon/UDT-Blake3.rs"
 
 [workspace.dependencies]
 udt-core = { path = "crates/udt-core" }

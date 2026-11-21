@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-21
+
+Blake3 hybrid reliability + public docs cut as **UDT-Blake3.rs**.
+
+### Added
+
+- Feature `blake3-reliability`: 64 KiB Blake3 BlockSeal + WANT/HAVE (experimental control types `0x10`/`0x11`/`0x12`)
+- Wired into `ReliabilityEngine` and socket dispatch; **`udt-cli` defaults to Blake3**
+- Docs: why-Blake3, wire format, papers/implementations, full WAN result tables + raw logs
+- `scripts/bench/` smoke/probe/ISO helpers; `dist/` prebuilt darwin-aarch64 + linux-x86_64 binaries
+
+### Measured (WAN local → 70.88.205.138, ~4 GB ISO)
+
+- UDT ACK/NAK **5.331 MiB/s** · UDT Blake3 **6.792 MiB/s** · SFTP **6.529 MiB/s**
+
 ### Fixed
 
 - Congestion avoidance no longer pins CWND at 16 when `recv_rate` feedback is missing (WAN was stuck ~0.55 MiB/s)

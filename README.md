@@ -1,108 +1,151 @@
-# UDT Pure Rust
+# UDT-Blake3.rs
 
 [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 
-Pure-Rust UDT (UDP-based Data Transfer) with C++ UDT4 class-compatible behavior.
+Pure-Rust UDT4 with Blake3 block seal + WANT/HAVE hybrid for faster WAN transfers.
 
-Maps C++ UDT4 responsibilities (`CUDT`, queues, `CCC`, packets) onto Rust modules
-and traits without linking `libudt` on the default hot path. See
-`docs/plan/SOURCE-RESEARCH.md` for the full research and build plan.
+Maps C++ UDT4 responsibilities onto Rust crates without linking `libudt` on the
+default hot path, then adds an experimental Blake3 reliability hybrid that beat
+both classic ACK/NAK UDT and SFTP on a measured ~4 GB WAN ISO path
+(**6.79 MiB/s** vs **5.33** / **6.53**). Repository name *UDT-Blake3.rs*; workspace
+crates remain `udt-core` / `udt-socket` / `udt-cli`.
 
 ## Table of Contents
 
 - [Background](#background)
 - [Install](#install)
 - [Usage](#usage)
+- [Why Blake3](#why-blake3)
+- [Benchmarks](#benchmarks)
+- [Prebuilt binaries](#prebuilt-binaries)
 - [Project layout](#project-layout)
 - [Documentation](#documentation)
-- [Progress console](#progress-console)
+- [References](#references)
 - [Contributing](#contributing)
 - [License](#license)
 
 ## Background
 
-UDT is a reliable UDP application-level protocol for high-BDP WAN transfers.
-Existing Rust options either FFI to C++ (`udt-rs`) or partially reimplement the
-stack (`tokio-udt`). This workspace aims for a **pure-Rust** core with interop
-tests against vendored UDT4.
+[UDT](https://udt.sourceforge.io/) (UDP-based Data Transfer) is a reliable
+application-level protocol for high bandwidth-delay-product WAN paths, designed
+by Yunhong Gu and Robert L. Grossman. Existing Rust options either FFI to C++
+(`udt-rs`) or partially reimplement the stack (`tokio-udt`).
+
+This workspace is a **pure-Rust** UDT4-class core plus tools (`udtcat`, `udtd`).
+On long WAN flows, classic ACK/NAK recovery left us under SFTP. The **Blake3
+hybrid** keeps light ACK for congestion control, seals every 64 KiB, and uses
+WANT/HAVE for gap pull and integrity — see [Why Blake3](#why-blake3).
 
 ## Install
 
 ```sh
-# Requires Rust 1.75+ (MSRV) and a recent stable toolchain
+# Rust 1.75+ (MSRV)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cd /Users/marchon/UDT
-cargo build --workspace
-cargo test --workspace
+git clone https://github.com/marchon/UDT-Blake3.rs.git
+cd UDT-Blake3.rs
+cargo build -p udt-cli --release
+cargo test -p udt-core --features blake3-reliability
+./scripts/bench/localhost-smoke.sh
+```
+
+Classic ACK/NAK only (UDT4-oriented interop):
+
+```sh
+cargo build -p udt-cli --release --no-default-features
 ```
 
 ## Usage
 
 ```sh
-# Run unit tests
-cargo test -p udt-core
+# Listen / send a file (Blake3 hybrid is the udt-cli default)
+cargo run -p udt-cli --release --bin udtcat -- -l 9000 -o /tmp/out.bin
+cargo run -p udt-cli --release --bin udtcat -- 127.0.0.1:9000 -i /tmp/in.bin
 
-# udtcat: listen then send a file over localhost UDT
-cargo run -p udt-cli --bin udtcat -- -l 9000 -o /tmp/out.bin
-# other terminal:
-cargo run -p udt-cli --bin udtcat -- 127.0.0.1:9000 -i /tmp/in.bin
+# Persistent multi-file inbox
+cargo run -p udt-cli --release --bin udtd -- serve -l 19000 -d /tmp/udt-inbox
+cargo run -p udt-cli --release --bin udtd -- put 127.0.0.1:19000 ./file.bin
 
-# udtd: persistent multi-file inbox
-cargo run -p udt-cli --bin udtd -- serve -l 19000 -d /tmp/udt-inbox
-cargo run -p udt-cli --bin udtd -- put 127.0.0.1:19000 ./file.bin
-
-# Phase 6 interop (needs vendored UDT4 — see crates/udt-interop/VENDOR.md)
-./crates/udt-interop/scripts/build_vendor.sh
-./crates/udt-interop/scripts/run_interop_cell.sh rust-cpp 65536
-
-# Minute-level progress board (teams/agents)
-./scripts/progress_console.sh --once
+# Short WAN probe (build example with Blake3)
+cargo run -p udt-socket --release --example wan_probe --features blake3-reliability -- \
+  HOST:19000 8388608
 ```
+
+Both ends of a transfer must use the same reliability mode.
+
+## Why Blake3
+
+Classic UDT ACK/NAK on our WAN path asymptoted near **5.3 MiB/s** while SFTP
+held **~6.5 MiB/s**. NAK storms and reverse-path ACK load interacted badly with
+pacing and capped rexmit. The hybrid keeps ACK for UDT4 CC, replaces NAK gap
+pull with sealed-block WANT bitmaps, and verifies each 64 KiB with Blake3.
+
+Full rationale: [`docs/blake3/why-blake3.md`](docs/blake3/why-blake3.md).  
+Wire format: [`docs/blake3/wire-format.md`](docs/blake3/wire-format.md).  
+Design sketch: [`docs/plan/blake3-reliability-sketch.md`](docs/plan/blake3-reliability-sketch.md).
+
+## Benchmarks
+
+Same-day sequential runs, local macOS → `70.88.205.138:19000`, MSS 1400:
+
+| Method | ~4 GB ISO | Rate |
+| --- | --- | --- |
+| UDT ACK/NAK | 743.22 s | 5.331 MiB/s |
+| **UDT Blake3** | **583.41 s** | **6.792 MiB/s** |
+| SFTP | 606.86 s | 6.529 MiB/s |
+
+1 GiB probe: Blake3 **7.435** vs baseline **5.376 MiB/s**.  
+Complete tables, method, and raw logs:
+[`docs/benchmarks/WAN-RESULTS.md`](docs/benchmarks/WAN-RESULTS.md).  
+Reproduce: [`scripts/bench/`](scripts/bench/README.md).
+
+## Prebuilt binaries
+
+| Platform | Path |
+| --- | --- |
+| macOS Apple Silicon | [`dist/darwin-aarch64/`](dist/darwin-aarch64/) |
+| Linux x86_64 | [`dist/linux-x86_64/`](dist/linux-x86_64/) |
+
+Checksums: [`dist/SHA256SUMS.txt`](dist/SHA256SUMS.txt). Also attached to GitHub
+Releases. Details: [`dist/README.md`](dist/README.md).
 
 ## Project layout
 
 | Path | Purpose |
 | --- | --- |
-| `crates/udt-core` | Packets, state, reliability, CC (no Tokio) |
-| `crates/udt-socket` | Sync + Tokio async facades |
-| `crates/udt-cli` | `udtcat` + `udtd` tools |
+| `crates/udt-core` | Packets, state, reliability, CC, Blake3 module |
+| `crates/udt-socket` | Sync + Tokio facades; `wan_probe` example |
+| `crates/udt-cli` | `udtcat` + `udtd` (Blake3 default) |
 | `crates/udt-interop` | C++ UDT4 matrix harness |
-| `docs/plan` | Research, ADR, roles, tech order, DoD |
-| `docs/api` | One page per public function |
-| `progress/` | Agent/team console jsonl + logs |
+| `docs/blake3` | Why Blake3 + wire format |
+| `docs/benchmarks` | WAN results + raw logs |
+| `docs/references` | Papers and other implementations |
+| `scripts/bench` | Smoke / probe / ISO helpers |
+| `dist/` | Prebuilt test binaries |
 
 ## Documentation
 
-- Plan: [`docs/plan/SOURCE-RESEARCH.md`](docs/plan/SOURCE-RESEARCH.md)
-- Tech order: [`docs/plan/TECH-ORDER.md`](docs/plan/TECH-ORDER.md)
-- Roles: [`docs/plan/ROLES-AND-TEAMS.md`](docs/plan/ROLES-AND-TEAMS.md)
-- DoD: [`docs/plan/DEFINITION-OF-COMPLETE.md`](docs/plan/DEFINITION-OF-COMPLETE.md)
-- API template: [`docs/api/TEMPLATE.md`](docs/api/TEMPLATE.md)
-- Developer guide: [`docs/usage/developer.md`](docs/usage/developer.md)
-- Handshake: [`docs/protocol/handshake.md`](docs/protocol/handshake.md)
-- Reliability: [`docs/protocol/reliability.md`](docs/protocol/reliability.md)
-- Congestion: [`docs/protocol/congestion.md`](docs/protocol/congestion.md)
-- Testing guide: [`docs/usage/testing.md`](docs/usage/testing.md)
-- udtcat: [`docs/usage/udtcat.md`](docs/usage/udtcat.md)
-- udtd: [`docs/usage/udtd.md`](docs/usage/udtd.md)
-- Socket options: [`docs/usage/options.md`](docs/usage/options.md)
-- Interop matrix: [`docs/plan/interop-matrix.md`](docs/plan/interop-matrix.md)
-- Migration from udt-rs: [`docs/usage/migration-udt-rs.md`](docs/usage/migration-udt-rs.md)
+- Why Blake3: [`docs/blake3/why-blake3.md`](docs/blake3/why-blake3.md)
+- WAN results: [`docs/benchmarks/WAN-RESULTS.md`](docs/benchmarks/WAN-RESULTS.md)
+- Papers & implementations: [`docs/references/papers-and-implementations.md`](docs/references/papers-and-implementations.md)
+- Research plan archive: [`docs/plan/SOURCE-RESEARCH.md`](docs/plan/SOURCE-RESEARCH.md)
+- Protocol: [`docs/protocol/`](docs/protocol/)
+- Usage: [`docs/usage/udtcat.md`](docs/usage/udtcat.md), [`docs/usage/udtd.md`](docs/usage/udtd.md)
+- Testing: [`docs/usage/testing.md`](docs/usage/testing.md)
 
-## Progress console
+## References
 
-```sh
-chmod +x scripts/*.sh
-./scripts/progress_tick.sh A A1-codec handshake-header-codec phase-1 10 running none "started"
-./scripts/progress_console.sh
-```
+Primary: Gu & Grossman, *Computer Networks* 2007; `draft-gg-udt-03`; UDT4 C++ at
+[eminence/udt](https://github.com/eminence/udt). Full list with links:
+[`docs/references/papers-and-implementations.md`](docs/references/papers-and-implementations.md).
 
 ## Contributing
 
-Questions: open an issue in this repository. PRs are accepted when they include
-tests for the touched phase exit criteria and, for public APIs, a one-page doc
-under `docs/api/` using the template. Follow `docs/plan/TECH-ORDER.md` — do not
-skip phase exit criteria.
+Questions: open an issue on
+[github.com/marchon/UDT-Blake3.rs](https://github.com/marchon/UDT-Blake3.rs).
+PRs welcome when they include tests for touched behavior and, for public APIs, a
+page under `docs/api/`. Follow `docs/plan/TECH-ORDER.md` for protocol phases.
+Both ends of Blake3 transfers must enable the feature (CLI default).
 
 ## License
 
