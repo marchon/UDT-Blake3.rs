@@ -1,0 +1,17 @@
+[package]
+name = "udt-socket"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sync and Tokio async facades over udt-core"
+readme = "README.md"
+
+[dependencies]
+udt-core = { workspace = true }
+tokio = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = ["tokio-rt"]
+tokio-rt = ["dep:tokio"]

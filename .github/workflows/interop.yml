@@ -1,0 +1,47 @@
+name: interop
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  rust-cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Ensure vendored UDT4
+        run: |
+          if [[ ! -d crates/udt-interop/vendor/udt/udt4/src ]]; then
+            git clone https://github.com/eminence/udt.git crates/udt-interop/vendor/udt
+            git -C crates/udt-interop/vendor/udt checkout 50638887518f52dd6f6099050cfff75f9f7db08d
+          fi
+      - name: Build C++ peers
+        run: ./crates/udt-interop/scripts/build_vendor.sh
+      - name: Interop PureRust client → CppUdt4 server
+        run: ./crates/udt-interop/scripts/run_interop_cell.sh rust-cpp 65536
+      - name: Interop CppUdt4 client → PureRust server
+        run: ./crates/udt-interop/scripts/run_interop_cell.sh cpp-rust 16384
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-evidence
+          path: artifacts/interop/
+
+  soak-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Soak smoke (+ 8MiB@1% loss unit)
+        env:
+          SOAK_SECONDS: "30"
+        run: ./crates/udt-interop/scripts/run_soak_smoke.sh
+      - name: Upload soak evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-evidence
+          path: artifacts/soak/

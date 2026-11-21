@@ -1,0 +1,17 @@
+[package]
+name = "udt-interop"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "C++ UDT4 interop harness (Phase 6)"
+readme = "README.md"
+publish = false
+
+[dependencies]
+udt-core = { workspace = true }
+
+[features]
+default = []
+# Enable when vendor/udt submodule is present and built.
+cpp-udt4 = []

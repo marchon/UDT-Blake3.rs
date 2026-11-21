@@ -1,0 +1,19 @@
+/target
+**/*.rs.bk
+.DS_Store
+.grok-session
+progress/console.log
+progress/console.pid
+progress/console.stdout
+progress/latest_by_agent.json
+progress/FINAL-BOARD.txt
+.firecrawl/
+# Vendored UDT4 tree is cloned locally / in CI (see VENDOR.md); do not commit blobs
+crates/udt-interop/vendor/
+crates/udt-interop/cpp/stream_server
+crates/udt-interop/cpp/stream_client
+artifacts/
+# Large external research dumps (plan lives in PlanAndBuildThisOutInRust.MD / docs/plan)
+UDT-class transfer in pure Rust_ research and build plans - Grok Bot.pdf
+UDT-class transfer in pure Rust_ research and build plans - Grok Bot.verae.json
+UDT-class transfer in pure Rust_ research and build plans - Grok Bot-verae-timestamp-receipt-*.pdf

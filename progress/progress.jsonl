@@ -1,0 +1,68 @@
+{"ts":"2026-11-21T19:18:51Z","team":"ORCH","agent":"ORCH","task":"bootstrap-plan","milestone":"phase-0","pct":100,"status":"done","blockers":"none","note":"plan docs + workspace scaffolded"}
+{"ts":"2026-11-21T19:18:51Z","team":"A","agent":"A1-codec","task":"packet-peek-type","milestone":"phase-1","pct":35,"status":"running","blockers":"none","note":"peek_type + tests landed"}
+{"ts":"2026-11-21T19:18:51Z","team":"A","agent":"A2-state","task":"state-machine-stub","milestone":"phase-2","pct":40,"status":"running","blockers":"none","note":"ConnectionState transitions green"}
+{"ts":"2026-11-21T19:18:51Z","team":"A","agent":"A3-reliability","task":"loss-list-stub","milestone":"phase-3","pct":25,"status":"running","blockers":"none","note":"LossList insert/remove"}
+{"ts":"2026-11-21T19:18:51Z","team":"A","agent":"A4-cc","task":"cc-trait-stub","milestone":"phase-4","pct":20,"status":"running","blockers":"none","note":"CongestionControl + Udt4Cc stub"}
+{"ts":"2026-11-21T19:18:51Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":50,"status":"running","blockers":"none","note":"template + 12 seed pages"}
+{"ts":"2026-11-21T19:18:51Z","team":"B","agent":"B2-socket-facade","task":"socket-stub","milestone":"phase-5","pct":30,"status":"running","blockers":"none","note":"UdtSocket bind/connect stubs"}
+{"ts":"2026-11-21T19:18:51Z","team":"B","agent":"B3-usage","task":"usage-docs","milestone":"phase-7","pct":40,"status":"running","blockers":"none","note":"developer + migration + udtcat"}
+{"ts":"2026-11-21T19:18:51Z","team":"C","agent":"C1-corpus","task":"conformance-layout","milestone":"phase-0","pct":30,"status":"running","blockers":"none","note":"conformance README ready"}
+{"ts":"2026-11-21T19:18:51Z","team":"C","agent":"C2-interop","task":"interop-matrix","milestone":"phase-6","pct":15,"status":"running","blockers":"none","note":"matrix doc + PeerKind types"}
+{"ts":"2026-11-21T19:18:51Z","team":"C","agent":"C3-progress","task":"progress-console","milestone":"phase-0","pct":80,"status":"running","blockers":"none","note":"console script ready"}
+{"ts":"2026-11-21T19:19:55Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":5,"status":"running","blockers":"none","note":"Surveying API docs"}
+{"ts":"2026-11-21T19:19:56Z","team":"A","agent":"A1-codec","task":"handshake-full-codec","milestone":"phase-1","pct":40,"status":"running","blockers":"none","note":"Starting HandshakePacket codec expansion"}
+{"ts":"2026-11-21T19:20:00Z","team":"A","agent":"A2-state","task":"connection-stub","milestone":"phase-2","pct":10,"status":"running","blockers":"none","note":"exploring state.rs; adding Connection stub"}
+{"ts":"2026-11-21T19:20:05Z","team":"ORCH","agent":"ORCH","task":"launch-agents","milestone":"phase-0","pct":60,"status":"running","blockers":"none","note":"5 subagents + console daemon started"}
+{"ts":"2026-11-21T19:20:05Z","team":"A","agent":"A1-codec","task":"handshake-full-codec","milestone":"phase-1","pct":40,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:05Z","team":"A","agent":"A2-state","task":"connection-stub","milestone":"phase-2","pct":45,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:05Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":55,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:05Z","team":"C","agent":"C1-corpus","task":"synthetic-goldens","milestone":"phase-0","pct":40,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:05Z","team":"C","agent":"C2-interop","task":"interop-scaffold","milestone":"phase-6","pct":25,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:06Z","team":"C","agent":"C1-corpus","task":"synthetic-goldens","milestone":"phase-0","pct":10,"status":"running","blockers":"none","note":"starting synthetic handshake golden vectors"}
+{"ts":"2026-11-21T19:20:10Z","team":"B","agent":"B3-usage","task":"usage-docs","milestone":"phase-7","pct":10,"status":"running","blockers":"none","note":"starting usage docs"}
+{"ts":"2026-11-21T19:20:11Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":25,"status":"running","blockers":"none","note":"Polishing pages + adding missing APIs"}
+{"ts":"2026-11-21T19:20:20Z","team":"B","agent":"B2-socket-facade","task":"socket-listen-accept-stubs","milestone":"phase-5","pct":35,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:20Z","team":"B","agent":"B3-usage","task":"usage-docs","milestone":"phase-7","pct":50,"status":"running","blockers":"none","note":"agent launched"}
+{"ts":"2026-11-21T19:20:21Z","team":"B","agent":"B2-socket-facade","task":"socket-listen-accept-stubs","milestone":"phase-5","pct":10,"status":"running","blockers":"none","note":"exploring existing UdtSocket stubs"}
+{"ts":"2026-11-21T19:20:24Z","team":"A","agent":"A1-codec","task":"handshake-full-codec","milestone":"phase-1","pct":70,"status":"running","blockers":"none","note":"Implementing HandshakePacket encode/decode"}
+{"ts":"2026-11-21T19:20:30Z","team":"B","agent":"B3-usage","task":"usage-docs","milestone":"phase-7","pct":50,"status":"running","blockers":"none","note":"drafting Debugging + testing.md"}
+{"ts":"2026-11-21T19:20:31Z","team":"A","agent":"A2-state","task":"connection-stub","milestone":"phase-2","pct":80,"status":"running","blockers":"none","note":"Connection stub + docs + tests written; awaiting cargo test"}
+{"ts":"2026-11-21T19:20:33Z","team":"C","agent":"C2-interop","task":"interop-scaffold","milestone":"phase-6","pct":100,"status":"done","blockers":"none","note":"VENDOR.md pin 50638887; interop-matrix CI/evidence cols; print_matrix example"}
+{"ts":"2026-11-21T19:20:35Z","team":"A","agent":"A2-state","task":"connection-stub","milestone":"phase-2","pct":100,"status":"done","blockers":"none","note":"Connection stub + state docs + begin_handshake API; cargo test -p udt-core passed"}
+{"ts":"2026-11-21T19:20:42Z","team":"ORCH","agent":"ORCH","task":"launch-agents","milestone":"phase-0","pct":70,"status":"running","blockers":"none","note":"plan index written; waiting on 7 agents"}
+{"ts":"2026-11-21T19:20:46Z","team":"ORCH","agent":"ORCH","task":"launch-agents","milestone":"phase-0","pct":75,"status":"running","blockers":"none","note":"A2+C2 done; cargo test after merges"}
+{"ts":"2026-11-21T19:20:47Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":50,"status":"running","blockers":"none","note":"Writing missing pages + polishing stubs"}
+{"ts":"2026-11-21T19:20:51Z","team":"B","agent":"B3-usage","task":"usage-docs","milestone":"phase-7","pct":100,"status":"done","blockers":"none","note":"developer Debugging + testing.md + README links"}
+{"ts":"2026-11-21T19:20:52Z","team":"B","agent":"B2-socket-facade","task":"socket-listen-accept-stubs","milestone":"phase-5","pct":40,"status":"running","blockers":"none","note":"implementing listen/accept stubs + rustdoc"}
+{"ts":"2026-11-21T19:21:14Z","team":"C","agent":"C1-corpus","task":"synthetic-goldens","milestone":"phase-0","pct":100,"status":"done","blockers":"none","note":"corpus handshake_control_word0.bin + README + notes/phase0.md; golden_handshake_word0 test green"}
+{"ts":"2026-11-21T19:21:19Z","team":"B","agent":"B2-socket-facade","task":"socket-listen-accept-stubs","milestone":"phase-5","pct":100,"status":"done","blockers":"none","note":"listen/accept stubs + rustdoc examples + API pages; cargo test -p udt-socket ok"}
+{"ts":"2026-11-21T19:21:21Z","team":"A","agent":"A1-codec","task":"handshake-full-codec","milestone":"phase-1","pct":100,"status":"done","blockers":"none","note":"HandshakePacket encode/decode round-trip green; API docs added"}
+{"ts":"2026-11-21T19:21:58Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":80,"status":"running","blockers":"none","note":"Running check_api_docs.sh"}
+{"ts":"2026-11-21T19:22:35Z","team":"B","agent":"B1-api-docs","task":"api-one-pagers","milestone":"phase-7","pct":100,"status":"done","blockers":"none","note":"API one-pagers polished; check_api_docs ok"}
+{"ts":"2026-11-21T19:23:00Z","team":"C","agent":"C3-progress","task":"progress-console","milestone":"phase-0","pct":100,"status":"done","blockers":"none","note":"minute console daemon running"}
+{"ts":"2026-11-21T19:23:00Z","team":"ORCH","agent":"ORCH","task":"launch-agents","milestone":"phase-0","pct":100,"status":"done","blockers":"none","note":"all 7 agents complete; workspace tests green"}
+{"ts":"2026-11-21T19:23:08Z","team":"A","agent":"A3-reliability","task":"loss-list-stub","milestone":"phase-3","pct":100,"status":"done","blockers":"none","note":"LossList stub complete; full ACK/NAK path is Phase 3 backlog"}
+{"ts":"2026-11-21T19:23:08Z","team":"A","agent":"A4-cc","task":"cc-trait-stub","milestone":"phase-4","pct":100,"status":"done","blockers":"none","note":"CC trait+Udt4Cc stub complete; bit-compat math is Phase 4 backlog"}
+{"ts":"2026-11-21T19:24:11Z","team":"A","agent":"A2-state","task":"phase2-localhost-handshake","milestone":"phase-2","pct":10,"status":"running","blockers":"none","note":"starting Phase 2 UDP handshake"}
+{"ts":"2026-11-21T19:24:11Z","team":"B","agent":"B2-socket-facade","task":"phase2-socket-api","milestone":"phase-2","pct":10,"status":"running","blockers":"none","note":"real bind/listen/connect/accept"}
+{"ts":"2026-11-21T19:26:16Z","team":"A","agent":"A2-state","task":"phase2-localhost-handshake","milestone":"phase-2","pct":100,"status":"done","blockers":"none","note":"three-way HS helpers + state docs"}
+{"ts":"2026-11-21T19:26:16Z","team":"B","agent":"B2-socket-facade","task":"phase2-socket-api","milestone":"phase-2","pct":100,"status":"done","blockers":"none","note":"bind/listen/connect/accept green"}
+{"ts":"2026-11-21T19:26:16Z","team":"ORCH","agent":"ORCH","task":"phase-2","milestone":"phase-2","pct":100,"status":"done","blockers":"none","note":"Phase 2 exit criteria met"}
+{"ts":"2026-11-21T19:26:56Z","team":"A","agent":"A3-reliability","task":"phase3-ack-nak-rexmit","milestone":"phase-3","pct":5,"status":"running","blockers":"none","note":"starting Phase 3 reliability"}
+{"ts":"2026-11-21T19:30:44Z","team":"A","agent":"A3-reliability","task":"phase3-ack-nak-rexmit","milestone":"phase-3","pct":40,"status":"running","blockers":"none","note":"engine+wire in; integrating socket send/recv"}
+{"ts":"2026-11-21T19:34:52Z","team":"A","agent":"A3-reliability","task":"phase3-ack-nak-rexmit","milestone":"phase-3","pct":100,"status":"done","blockers":"none","note":"8MiB@1% loss green; ACK/NAK/RTO live"}
+{"ts":"2026-11-21T19:34:52Z","team":"ORCH","agent":"ORCH","task":"phase-3","milestone":"phase-3","pct":100,"status":"done","blockers":"none","note":"Phase 3 exit criteria met"}
+{"ts":"2026-11-21T19:36:33Z","team":"A","agent":"A4-cc","task":"phase4-udt4-cc","milestone":"phase-4","pct":5,"status":"running","blockers":"none","note":"starting Phase 4 UDT4 CC"}
+{"ts":"2026-11-21T19:39:05Z","team":"A","agent":"A4-cc","task":"phase4-udt4-cc","milestone":"phase-4","pct":50,"status":"running","blockers":"none","note":"Udt4Cc math + engine cwnd wiring"}
+{"ts":"2026-11-21T19:44:22Z","team":"A","agent":"A4-cc","task":"phase4-udt4-cc","milestone":"phase-4","pct":100,"status":"done","blockers":"none","note":"Udt4Cc+FixedCc+cwnd gating; sim+vectors green"}
+{"ts":"2026-11-21T19:44:22Z","team":"ORCH","agent":"ORCH","task":"phase-4","milestone":"phase-4","pct":100,"status":"done","blockers":"none","note":"Phase 4 exit criteria met"}
+{"ts":"2026-11-21T19:47:34Z","team":"B","agent":"B2-socket-facade","task":"phase5-options-cli","milestone":"phase-5","pct":5,"status":"running","blockers":"none","note":"starting Phase 5 API polish + udtcat"}
+{"ts":"2026-11-21T19:49:33Z","team":"B","agent":"B2-socket-facade","task":"phase5-options-cli","milestone":"phase-5","pct":40,"status":"running","blockers":"none","note":"options + udtcat in progress"}
+{"ts":"2026-11-21T19:51:23Z","team":"B","agent":"B2-socket-facade","task":"phase5-options-cli","milestone":"phase-5","pct":100,"status":"done","blockers":"none","note":"options+AsyncUdtSocket+udtcat E2E; docs stamped"}
+{"ts":"2026-11-21T19:51:23Z","team":"ORCH","agent":"ORCH","task":"phase-5","milestone":"phase-5","pct":100,"status":"done","blockers":"none","note":"Phase 5 exit criteria met"}
+{"ts":"2026-11-21T19:52:04Z","team":"C","agent":"C2-interop","task":"phase6-interop-soak","milestone":"phase-6","pct":5,"status":"running","blockers":"none","note":"starting Phase 6 interop + soak"}
+{"ts":"2026-11-21T20:06:14Z","team":"C","agent":"C2-interop","task":"phase6-interop-soak","milestone":"phase-6","pct":100,"status":"done","blockers":"none","note":"cookie HS; rust-cpp+cpp-rust pass; soak smoke+bench"}
+{"ts":"2026-11-21T20:06:14Z","team":"ORCH","agent":"ORCH","task":"phase-6","milestone":"phase-6","pct":100,"status":"done","blockers":"none","note":"Phase 6 exit criteria met"}
+{"ts":"2026-11-21T20:07:08Z","team":"B","agent":"B1-api-docs","task":"phase7-docs-freeze","milestone":"phase-7","pct":5,"status":"running","blockers":"none","note":"starting Phase 7 docs freeze"}
+{"ts":"2026-11-21T20:09:23Z","team":"B","agent":"B1-api-docs","task":"phase7-docs-freeze","milestone":"phase-7","pct":100,"status":"done","blockers":"none","note":"LICENSE+NOTICE; API index; migration; check_api_docs ok"}
+{"ts":"2026-11-21T20:09:23Z","team":"ORCH","agent":"ORCH","task":"phase-7","milestone":"phase-7","pct":100,"status":"done","blockers":"none","note":"Phase 7 docs freeze complete; v0.1.0 cut"}

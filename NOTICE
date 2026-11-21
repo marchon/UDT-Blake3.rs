@@ -1,0 +1,13 @@
+UDT pure-Rust
+Copyright (c) 2026 UDT pure-Rust contributors
+Licensed under the BSD 3-Clause License. See LICENSE.
+
+Third-party attribution
+-----------------------
+
+When the optional Phase 6 interop tree is present under
+`crates/udt-interop/vendor/udt`, that tree is a copy of UDT4 from
+https://github.com/eminence/udt (pin documented in
+`crates/udt-interop/VENDOR.md`) and remains under its upstream BSD license
+(University of Illinois / UDT). It is not linked into default `cargo test
+--workspace` builds.

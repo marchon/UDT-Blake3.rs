@@ -1,0 +1,19 @@
+[package]
+name = "udt-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "udtcat-style CLI tools for udt-pure"
+readme = "README.md"
+
+[lib]
+name = "udt_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "udtcat"
+path = "src/main.rs"
+
+[dependencies]
+udt-socket = { workspace = true }
