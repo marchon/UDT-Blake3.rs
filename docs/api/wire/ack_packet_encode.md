@@ -16,13 +16,15 @@ impl AckPacket {
 
 ## 2. Semantics
 
-Encode a minimal ACK control packet (type 2) with the cumulative ack sequence.
+Encode an ACK control packet (type 2). Light ACKs are 16 bytes (cumulative ack
+in the additional-info word). Full ACKs are 40 bytes and append data ack, RTT,
+RTTVar, flow window, recv_rate, and bandwidth for CC feedback.
 
 ## 3. Preconditions / postconditions
 
 **Preconditions**
 
-- `buf.len() >= ACK_PACKET_LEN`.
+- `buf.len() >= ACK_PACKET_LEN` (light) or `ACK_FULL_PACKET_LEN` (full).
 
 **Postconditions**
 

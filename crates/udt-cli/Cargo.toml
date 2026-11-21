@@ -15,5 +15,9 @@ path = "src/lib.rs"
 name = "udtcat"
 path = "src/main.rs"
 
+[[bin]]
+name = "udtd"
+path = "src/udtd.rs"
+
 [dependencies]
 udt-socket = { workspace = true }

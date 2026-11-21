@@ -21,9 +21,18 @@ Native UDT4 hybrid CC (`Udt4Cc`), following draft-gg-udt-03 / `CUDTCC`:
 - `UDT_MIN_INC` = 0.01
 - Initial CWND = 16, initial SND = 1µs
 
-SND is clamped to `[1, SYN]` µs until receiver bandwidth/rate feedback is fully
-wired on the ACK path (Phase 6+).
+SND is clamped to `[1, SYN]` µs. Full ACKs carry RTT / recv_rate / bandwidth;
+the sender applies them via `set_rtt_us` / `set_recv_rate` / `set_bandwidth`.
+When `recv_rate` is still 0, congestion avoidance **keeps** the current CWND
+(and grows by 1 per SYN) instead of pinning to 16.
 
 ## Plugging in
 
 `ReliabilityEngine::with_cc(Box::new(FixedCc::new(..)))` for tests.
+
+## Sender pacing
+
+`ReliabilityEngine::enqueue_app_data` advances a virtual send clock by one SND
+period per packet and caps how far ahead of wall time a single call may
+schedule (~2 ms). This avoids blasting a full CWND as one UDP microburst on
+WAN paths. RTO retransmission sends the oldest outstanding packet only.

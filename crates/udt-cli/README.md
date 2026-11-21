@@ -1,6 +1,6 @@
 # udt-cli
 
-udtcat CLI for pure-Rust UDT stream file transfers.
+udtcat and udtd CLIs for pure-Rust UDT stream and framed file transfers.
 
 ## Install
 
@@ -11,17 +11,20 @@ cargo build -p udt-cli --release
 ## Usage
 
 ```sh
-# Listen and write to a file
-cargo run -p udt-cli -- -l 9000 -o /tmp/out.bin
+# Raw stream listen / send (udtcat)
+cargo run -p udt-cli --bin udtcat -- -l 9000 -o /tmp/out.bin
+cargo run -p udt-cli --bin udtcat -- 127.0.0.1:9000 -i /tmp/in.bin
 
-# Send a file
-cargo run -p udt-cli -- 127.0.0.1:9000 -i /tmp/in.bin
+# Persistent multi-file inbox (udtd)
+cargo run -p udt-cli --bin udtd -- serve -l 19000 -d /tmp/udt-inbox
+cargo run -p udt-cli --bin udtd -- put 127.0.0.1:19000 ./file.bin
 
 # Tests
 cargo test -p udt-cli
 ```
 
-See [`docs/usage/udtcat.md`](../../docs/usage/udtcat.md).
+See [`docs/usage/udtcat.md`](../../docs/usage/udtcat.md) and
+[`docs/usage/udtd.md`](../../docs/usage/udtd.md).
 
 ## Contributing
 

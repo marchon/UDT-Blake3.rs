@@ -432,7 +432,24 @@ impl UdtSocket {
             if consumed == 0 && outgoing.is_empty() {
                 // Window full or rate-paced — drive ACKs/rexmits then retry.
                 self.pump_once()?;
-                std::thread::sleep(Duration::from_micros(100));
+                // Sleep until pacing or RTO deadline (cap 2ms).
+                let now = Instant::now();
+                let wait = self
+                    .rel
+                    .as_ref()
+                    .map(|r| {
+                        let send_wait = r.next_send_deadline().saturating_duration_since(now);
+                        let timer_wait = r
+                            .next_timer()
+                            .map(|t| t.saturating_duration_since(now))
+                            .unwrap_or(Duration::from_millis(2));
+                        send_wait.min(timer_wait)
+                    })
+                    .unwrap_or(Duration::from_micros(200))
+                    .min(Duration::from_millis(2));
+                if !wait.is_zero() {
+                    std::thread::sleep(wait);
+                }
                 continue;
             }
             self.dispatch(outgoing)?;
@@ -501,6 +518,10 @@ impl UdtSocket {
     }
 
     /// Process one burst of inbound UDP + timers.
+    ///
+    /// Drains the UDP socket in non-blocking mode so an empty queue does not
+    /// burn the full `RcvTimeo` (previously a ~20 ms tax per pump when CWND was
+    /// small).
     pub fn pump_once(&mut self) -> Result<(), SocketError> {
         let udp = self
             .udp
@@ -518,9 +539,11 @@ impl UdtSocket {
         };
         self.dispatch(timed)?;
 
-        // Drain available UDP packets (non-blocking style via short timeout).
+        // Non-blocking drain — restore prior timeout afterwards.
+        let prior_timeout = self.read_timeout;
+        let _ = udp.set_nonblocking(true);
         let mut buf = [0u8; 2048];
-        for _ in 0..64 {
+        for _ in 0..256 {
             match udp.recv_from(&mut buf) {
                 Ok((n, from)) => {
                     if let Some(peer) = self.peer {
@@ -546,9 +569,15 @@ impl UdtSocket {
                 {
                     break;
                 }
-                Err(e) => return Err(SocketError::Io(e)),
+                Err(e) => {
+                    let _ = udp.set_nonblocking(false);
+                    let _ = udp.set_read_timeout(prior_timeout);
+                    return Err(SocketError::Io(e));
+                }
             }
         }
+        let _ = udp.set_nonblocking(false);
+        let _ = udp.set_read_timeout(prior_timeout);
         Ok(())
     }
 
@@ -566,6 +595,7 @@ impl UdtSocket {
             let (is_data, n) = match &pkt {
                 Outgoing::Data(d) => (true, d.encode(&mut wire)?),
                 Outgoing::Ack(a) => (false, a.encode(&mut wire)?),
+                Outgoing::Ack2(a) => (false, a.encode(&mut wire)?),
                 Outgoing::Nak(n) => (false, n.encode(&mut wire)?),
             };
             if is_data && self.should_drop_data() {
@@ -653,7 +683,8 @@ fn recv_hs_from(
     udp: &UdpSocket,
     mut accept: impl FnMut(&HandshakePacket) -> bool,
 ) -> Result<(HandshakePacket, SocketAddr), SocketError> {
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // WAN / NAT paths need headroom beyond localhost; cookie HS is 4 packets.
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut buf = [0u8; 2048];
     loop {
         if Instant::now() > deadline {

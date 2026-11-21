@@ -43,9 +43,13 @@ cargo test --workspace
 cargo test -p udt-core
 
 # udtcat: listen then send a file over localhost UDT
-cargo run -p udt-cli -- -l 9000 -o /tmp/out.bin
+cargo run -p udt-cli --bin udtcat -- -l 9000 -o /tmp/out.bin
 # other terminal:
-cargo run -p udt-cli -- 127.0.0.1:9000 -i /tmp/in.bin
+cargo run -p udt-cli --bin udtcat -- 127.0.0.1:9000 -i /tmp/in.bin
+
+# udtd: persistent multi-file inbox
+cargo run -p udt-cli --bin udtd -- serve -l 19000 -d /tmp/udt-inbox
+cargo run -p udt-cli --bin udtd -- put 127.0.0.1:19000 ./file.bin
 
 # Phase 6 interop (needs vendored UDT4 — see crates/udt-interop/VENDOR.md)
 ./crates/udt-interop/scripts/build_vendor.sh
@@ -61,7 +65,7 @@ cargo run -p udt-cli -- 127.0.0.1:9000 -i /tmp/in.bin
 | --- | --- |
 | `crates/udt-core` | Packets, state, reliability, CC (no Tokio) |
 | `crates/udt-socket` | Sync + Tokio async facades |
-| `crates/udt-cli` | `udtcat` tool |
+| `crates/udt-cli` | `udtcat` + `udtd` tools |
 | `crates/udt-interop` | C++ UDT4 matrix harness |
 | `docs/plan` | Research, ADR, roles, tech order, DoD |
 | `docs/api` | One page per public function |
@@ -80,6 +84,7 @@ cargo run -p udt-cli -- 127.0.0.1:9000 -i /tmp/in.bin
 - Congestion: [`docs/protocol/congestion.md`](docs/protocol/congestion.md)
 - Testing guide: [`docs/usage/testing.md`](docs/usage/testing.md)
 - udtcat: [`docs/usage/udtcat.md`](docs/usage/udtcat.md)
+- udtd: [`docs/usage/udtd.md`](docs/usage/udtd.md)
 - Socket options: [`docs/usage/options.md`](docs/usage/options.md)
 - Interop matrix: [`docs/plan/interop-matrix.md`](docs/plan/interop-matrix.md)
 - Migration from udt-rs: [`docs/usage/migration-udt-rs.md`](docs/usage/migration-udt-rs.md)

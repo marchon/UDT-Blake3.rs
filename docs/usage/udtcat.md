@@ -36,8 +36,11 @@ cargo run -p udt-cli -- 127.0.0.1:9000 -i /tmp/in.bin
 cmp /tmp/in.bin /tmp/out.bin && echo OK
 ```
 
-Listener stops after ~5 s of idle after the last received byte (sender `flush` +
+Listener stops after ~60 s of idle after the last received byte (sender `flush` +
 `shutdown`). Stderr prints listen/accept/connect and byte counts.
+
+For a persistent multi-file inbox that waits for many deliveries, use
+[`udtd`](udtd.md) (`udtd serve -l … -d inbox`).
 
 ### Library helpers
 

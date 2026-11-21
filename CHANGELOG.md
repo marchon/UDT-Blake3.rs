@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Congestion avoidance no longer pins CWND at 16 when `recv_rate` feedback is missing (WAN was stuck ~0.55 MiB/s)
+- Full ACK carries RTT / RTTVar / flow window / recv_rate / bandwidth; sender applies them to CC
+- Local RTT sampling from send timestamps + ACK2; RTO derived from `RTT + 4·RTTVar`
+- `pump_once` drains UDP in non-blocking mode (removed ~20 ms empty-recv tax)
+
+### Added
+
+- Per-packet SND pacing (virtual clock) to avoid WAN UDP microbursts
+- RTO retransmits oldest unacked packet only (not entire flight)
+- 1 MiB application read/write chunks in `udtcat` / `udtd`
+- `udtd` persistent multi-file delivery daemon (`serve -l … -d inbox`, `put host:port files…`)
+- Framed file protocol: `u32 name_len | name | u64 file_len | body`
+
 ## 0.1.0 — 2026-11-21
 
 First docs-freeze cut of the pure-Rust UDT4-class stack.

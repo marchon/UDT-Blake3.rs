@@ -46,6 +46,7 @@ pub use reliability::{
 pub use state::{Connection, ConnectionState, StateError};
 pub use timer::{Deadline, TimerKind, TimerWheel};
 pub use wire::{
-    peek_is_control, AckPacket, DataPacket, NakPacket, ACK_PACKET_LEN, CTRL_ACK, CTRL_NAK,
-    DATA_HEADER_LEN, NAK_HEADER_LEN,
+    peek_is_control, Ack2Packet, AckPacket, DataPacket, NakPacket, ACK2_PACKET_LEN,
+    ACK_FULL_PACKET_LEN, ACK_PACKET_LEN, CTRL_ACK, CTRL_ACK2, CTRL_NAK, DATA_HEADER_LEN,
+    NAK_HEADER_LEN,
 };

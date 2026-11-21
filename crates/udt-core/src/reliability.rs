@@ -8,15 +8,22 @@ use crate::cc::{CongestionControl, Udt4Cc};
 use crate::packet::PacketType;
 use crate::seq::{seq_add, seq_before, seq_norm};
 use crate::timer::{TimerKind, TimerWheel};
-use crate::wire::{peek_is_control, AckPacket, DataPacket, NakPacket, DATA_HEADER_LEN};
+use crate::cc::UDT_SYN_US;
+use crate::wire::{
+    peek_is_control, Ack2Packet, AckPacket, DataPacket, NakPacket, DATA_HEADER_LEN,
+};
 
 /// Sequence number used on the UDT data path.
 pub type SeqNo = u32;
 
 /// Default payload size per data packet (keeps UDP under typical 1500 MTU).
 pub const DEFAULT_MSS_PAYLOAD: usize = 1200;
-/// Default retransmission timeout.
+/// Default retransmission timeout (until RTT is measured).
 pub const DEFAULT_RTO: Duration = Duration::from_millis(100);
+/// Floor for RTO.
+pub const MIN_RTO: Duration = Duration::from_millis(50);
+/// Ceiling for RTO.
+pub const MAX_RTO: Duration = Duration::from_secs(3);
 
 /// Tracks packets that appear lost and need retransmission or NAK.
 #[derive(Debug, Default, Clone)]
@@ -92,6 +99,8 @@ pub enum Outgoing {
     Data(DataPacket),
     /// Cumulative ACK.
     Ack(AckPacket),
+    /// ACK of ACK (RTT measurement).
+    Ack2(Ack2Packet),
     /// Loss report.
     Nak(NakPacket),
 }
@@ -119,6 +128,10 @@ pub struct ReliabilityEngine {
     mss: usize,
     /// Retransmission timeout.
     rto: Duration,
+    /// Smoothed RTT (microseconds).
+    rtt_us: u64,
+    /// RTT variance (microseconds).
+    rtt_var_us: u64,
     timers: TimerWheel,
     /// Need to emit ACK soon.
     ack_pending: bool,
@@ -128,6 +141,24 @@ pub struct ReliabilityEngine {
     cc: Box<dyn CongestionControl>,
     /// Earliest Instant the next *new* data packet may leave (rate pacing).
     next_send_at: Instant,
+    /// Next ACK sub-sequence number (for ACK2).
+    next_ack_number: u32,
+    /// When we last sent a full ACK with rate feedback.
+    last_full_ack_at: Option<Instant>,
+    /// Packets received since `recv_rate_window_start`.
+    recv_pkts_in_window: u32,
+    /// Start of the current recv-rate measurement window.
+    recv_rate_window_start: Instant,
+    /// EWMA packet arrival rate (packets/sec).
+    recv_rate_pps: u32,
+    /// EWMA bandwidth estimate (packets/sec).
+    bandwidth_pps: u32,
+    /// Advertised flow window (packets) included in full ACKs.
+    flow_window_pkts: u32,
+    /// Pending ACK2 to send (ack_number).
+    pending_ack2: Option<u32>,
+    /// ACK numbers we sent → (data ack seq, send time) awaiting ACK2.
+    ack_flight: BTreeMap<u32, (SeqNo, Instant)>,
 }
 
 impl std::fmt::Debug for ReliabilityEngine {
@@ -172,6 +203,7 @@ impl ReliabilityEngine {
     ) -> Self {
         cc.set_snd_curr_seq(seq_norm(local_init_seq));
         cc.set_mss(DEFAULT_MSS_PAYLOAD as u32 + DATA_HEADER_LEN as u32);
+        let now = Instant::now();
         Self {
             send_next: seq_norm(local_init_seq),
             unacked: BTreeMap::new(),
@@ -183,11 +215,22 @@ impl ReliabilityEngine {
             local_sock_id,
             mss: DEFAULT_MSS_PAYLOAD,
             rto: DEFAULT_RTO,
+            rtt_us: 100_000,
+            rtt_var_us: 50_000,
             timers: TimerWheel::new(),
             ack_pending: false,
             nak_pending: false,
             cc,
-            next_send_at: Instant::now(),
+            next_send_at: now,
+            next_ack_number: 1,
+            last_full_ack_at: None,
+            recv_pkts_in_window: 0,
+            recv_rate_window_start: now,
+            recv_rate_pps: 0,
+            bandwidth_pps: 0,
+            flow_window_pkts: 16_384,
+            pending_ack2: None,
+            ack_flight: BTreeMap::new(),
         }
     }
 
@@ -216,6 +259,12 @@ impl ReliabilityEngine {
     /// Set maximum congestion / flow window (packets).
     pub fn set_max_cwnd(&mut self, pkts: u32) {
         self.cc.set_max_cwnd(pkts);
+        self.flow_window_pkts = pkts.max(2);
+    }
+
+    /// Current smoothed RTT in microseconds.
+    pub fn rtt_us(&self) -> u64 {
+        self.rtt_us
     }
 
     /// Mutable access to the congestion controller.
@@ -249,9 +298,13 @@ impl ReliabilityEngine {
 
     /// Segment `data` into packets and return wire messages to send now.
     ///
-    /// Stops when the congestion window is full (`inflight >= cwnd`). Remaining
-    /// bytes are **not** queued — the caller should retry after ACKs free window.
+    /// Stops when the congestion window is full (`inflight >= cwnd`) or the
+    /// rate-pacing budget for this call is exhausted. Remaining bytes are
+    /// **not** queued — the caller should retry after ACKs / pacing allow more.
     /// Returns `(outgoing, bytes_consumed_from_data)`.
+    ///
+    /// Packets are paced one SND period apart (virtual clock). Emitting a full
+    /// CWND as a single UDP microburst caused heavy WAN loss and pinned rate.
     pub fn enqueue_app_data(
         &mut self,
         data: &[u8],
@@ -261,14 +314,16 @@ impl ReliabilityEngine {
         let mut out = Vec::new();
         let mut offset = 0;
         let cwnd = self.cc.cwnd_pkts() as usize;
-        // If the rate gate is still closed, emit nothing this call.
-        if now < self.next_send_at {
-            return (out, 0);
-        }
-        let period = Duration::from_micros(self.cc.sending_period_us());
-        // Fill up to cwnd in this call; virtual pacing advances next_send_at for
-        // subsequent calls (socket layer may also sleep on period).
+        let period_us = self.cc.sending_period_us().max(1);
+        let period = Duration::from_micros(period_us);
+        // How far ahead of wall clock we may schedule in one call (~2 ms of send
+        // time, or at least one packet). Keeps localhost fast when period≈1µs.
+        let horizon = Duration::from_millis(2).max(period);
+        let mut slot = self.next_send_at.max(now);
         while offset < data.len() && self.unacked.len() < cwnd {
+            if slot > now + horizon {
+                break;
+            }
             let end = (offset + self.mss).min(data.len());
             let payload = data[offset..end].to_vec();
             let seq = self.send_next;
@@ -288,11 +343,10 @@ impl ReliabilityEngine {
                 payload,
             }));
             offset = end;
+            slot += period;
         }
         if !out.is_empty() {
-            // Gate the *next* enqueue burst; do not multiply by packet count
-            // (wire pacing is approximate until a dedicated sender thread exists).
-            self.next_send_at = now + period;
+            self.next_send_at = slot;
             self.arm_rto(now);
         }
         (out, offset)
@@ -319,7 +373,12 @@ impl ReliabilityEngine {
             match crate::packet::peek_type(buf) {
                 Ok(PacketType::Ack) => {
                     if let Ok(ack) = AckPacket::decode(buf) {
-                        out.extend(self.on_ack(ack.ack_seq, now));
+                        out.extend(self.on_ack_packet(&ack, now, timestamp));
+                    }
+                }
+                Ok(PacketType::Ack2) => {
+                    if let Ok(ack2) = Ack2Packet::decode(buf) {
+                        self.on_ack2(&ack2, now);
                     }
                 }
                 Ok(PacketType::Nak) => {
@@ -332,28 +391,60 @@ impl ReliabilityEngine {
         } else if let Ok(data) = DataPacket::decode(buf) {
             out.extend(self.on_data(data, now, timestamp));
         }
-        out.extend(self.flush_control(timestamp));
+        out.extend(self.flush_control(now, timestamp));
         out
     }
 
-    /// Poll timers (RTO → retransmit).
+    /// Poll timers (RTO → retransmit oldest outstanding packet).
     pub fn on_timer_poll(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
         let mut out = Vec::new();
         for kind in self.timers.poll(now) {
             if kind == TimerKind::Rto {
                 self.cc.on_timeout();
-                out.extend(self.retransmit_all_unacked(now, timestamp));
+                // UDT EXP path retransmits the oldest unacked packet — not the
+                // entire flight (that collapsed WAN throughput after any RTO).
+                out.extend(self.retransmit_oldest_unacked(now, timestamp));
                 if !self.unacked.is_empty() {
                     self.arm_rto(now);
                 }
             }
         }
-        out.extend(self.flush_control(timestamp));
+        out.extend(self.flush_control(now, timestamp));
         out
     }
 
-    fn on_ack(&mut self, ack_seq: SeqNo, now: Instant) -> Vec<Outgoing> {
-        let ack_seq = seq_norm(ack_seq);
+    fn on_ack_packet(
+        &mut self,
+        ack: &AckPacket,
+        now: Instant,
+        timestamp: u32,
+    ) -> Vec<Outgoing> {
+        let ack_seq = seq_norm(ack.ack_seq);
+
+        // Local RTT from the newest packet freed by this ACK.
+        if let Some((_, sent)) = self
+            .unacked
+            .iter()
+            .rev()
+            .find(|(seq, _)| seq_before(**seq, ack_seq))
+        {
+            let sample = now.saturating_duration_since(sent.last_sent);
+            self.update_rtt(sample);
+        }
+
+        if let Some(rtt) = ack.rtt_us {
+            self.cc.set_rtt_us(u64::from(rtt));
+        }
+        if let Some(rate) = ack.recv_rate {
+            self.cc.set_recv_rate(rate);
+        }
+        if let Some(bw) = ack.bandwidth {
+            self.cc.set_bandwidth(bw);
+        }
+        if let Some(fw) = ack.flow_window {
+            self.cc.set_max_cwnd(fw.max(2));
+        }
+
         self.unacked.retain(|seq, _| !seq_before(*seq, ack_seq));
         self.cc.on_ack(ack_seq);
         if self.unacked.is_empty() {
@@ -361,7 +452,40 @@ impl ReliabilityEngine {
         } else {
             self.arm_rto(now);
         }
-        Vec::new()
+
+        // Reply ACK2 so the peer can refine RTT (UDT4).
+        let mut out = Vec::new();
+        if ack.ack_number != 0 {
+            out.push(Outgoing::Ack2(Ack2Packet {
+                ack_number: ack.ack_number,
+                dest_sock_id: self.peer_sock_id,
+                timestamp,
+            }));
+        }
+        out
+    }
+
+    fn on_ack2(&mut self, ack2: &Ack2Packet, now: Instant) {
+        if let Some((_ack_seq, sent_at)) = self.ack_flight.remove(&ack2.ack_number) {
+            let sample = now.saturating_duration_since(sent_at);
+            self.update_rtt(sample);
+        }
+    }
+
+    fn update_rtt(&mut self, sample: Duration) {
+        let sample_us = sample.as_micros().min(u128::from(u64::MAX)) as u64;
+        if sample_us == 0 {
+            return;
+        }
+        // EWMA as in UDT4: RTT = (7*RTT + sample)/8 ; VAR = (3*VAR + |d|)/4
+        let diff = sample_us.abs_diff(self.rtt_us);
+        self.rtt_var_us = (self.rtt_var_us * 3 + diff) / 4;
+        self.rtt_us = (self.rtt_us * 7 + sample_us) / 8;
+        self.cc.set_rtt_us(self.rtt_us);
+        self.rto = Duration::from_micros(
+            (self.rtt_us + 4 * self.rtt_var_us).max(MIN_RTO.as_micros() as u64),
+        )
+        .min(MAX_RTO);
     }
 
     fn on_nak(&mut self, lost: &[SeqNo], now: Instant, timestamp: u32) -> Vec<Outgoing> {
@@ -385,8 +509,9 @@ impl ReliabilityEngine {
         out
     }
 
-    fn on_data(&mut self, data: DataPacket, _now: Instant, _timestamp: u32) -> Vec<Outgoing> {
+    fn on_data(&mut self, data: DataPacket, now: Instant, _timestamp: u32) -> Vec<Outgoing> {
         let seq = seq_norm(data.seq);
+        self.note_recv_packet(now);
         if seq_before(seq, self.recv_next) {
             // duplicate of already delivered — still ACK
             self.ack_pending = true;
@@ -412,7 +537,30 @@ impl ReliabilityEngine {
         Vec::new()
     }
 
-    fn flush_control(&mut self, timestamp: u32) -> Vec<Outgoing> {
+    fn note_recv_packet(&mut self, now: Instant) {
+        self.recv_pkts_in_window = self.recv_pkts_in_window.saturating_add(1);
+        let elapsed = now.saturating_duration_since(self.recv_rate_window_start);
+        if elapsed >= Duration::from_micros(UDT_SYN_US) {
+            let secs = elapsed.as_secs_f64().max(1e-6);
+            let instant = (f64::from(self.recv_pkts_in_window) / secs) as u32;
+            if self.recv_rate_pps == 0 {
+                self.recv_rate_pps = instant.max(1);
+            } else {
+                self.recv_rate_pps = (self.recv_rate_pps * 7 + instant) / 8;
+            }
+            // Bandwidth floor: at least the observed arrival rate.
+            if self.bandwidth_pps == 0 {
+                self.bandwidth_pps = self.recv_rate_pps.saturating_mul(2).max(16);
+            } else {
+                let peak = instant.saturating_mul(2).max(self.recv_rate_pps);
+                self.bandwidth_pps = (self.bandwidth_pps * 7 + peak) / 8;
+            }
+            self.recv_pkts_in_window = 0;
+            self.recv_rate_window_start = now;
+        }
+    }
+
+    fn flush_control(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
         let mut out = Vec::new();
         // Cap NAK size so the datagram stays under a typical 1500–8K UDP payload.
         const MAX_NAK_SEQS: usize = 64;
@@ -432,17 +580,73 @@ impl ReliabilityEngine {
             self.nak_pending = false;
         }
         if self.ack_pending {
-            out.push(Outgoing::Ack(AckPacket {
-                ack_seq: self.recv_next,
+            let send_full = match self.last_full_ack_at {
+                None => true,
+                Some(t) => now.saturating_duration_since(t)
+                    >= Duration::from_micros(UDT_SYN_US),
+            };
+            let ack_number = self.next_ack_number;
+            self.next_ack_number = self.next_ack_number.wrapping_add(1).max(1);
+            let ack = if send_full {
+                self.last_full_ack_at = Some(now);
+                self.ack_flight.insert(ack_number, (self.recv_next, now));
+                while self.ack_flight.len() > 1024 {
+                    if let Some(k) = self.ack_flight.keys().next().copied() {
+                        self.ack_flight.remove(&k);
+                    } else {
+                        break;
+                    }
+                }
+                AckPacket {
+                    ack_seq: self.recv_next,
+                    dest_sock_id: self.peer_sock_id,
+                    timestamp,
+                    ack_number,
+                    rtt_us: Some(self.rtt_us.min(u64::from(u32::MAX)) as u32),
+                    rtt_var_us: Some(self.rtt_var_us.min(u64::from(u32::MAX)) as u32),
+                    flow_window: Some(self.flow_window_pkts.max(2)),
+                    // Until the SYN window has samples, advertise a high rate so
+                    // the peer CC can open CWND instead of stalling at 16.
+                    recv_rate: Some(self.recv_rate_pps.max(1_000)),
+                    bandwidth: Some(
+                        self.bandwidth_pps
+                            .max(self.recv_rate_pps)
+                            .max(10_000),
+                    ),
+                }
+            } else {
+                // Light ACK keeps data ack_seq in header additional-info (no ack_number).
+                AckPacket::light(self.recv_next, self.peer_sock_id, timestamp)
+            };
+            out.push(Outgoing::Ack(ack));
+            self.ack_pending = false;
+        }
+        if let Some(n) = self.pending_ack2.take() {
+            out.push(Outgoing::Ack2(Ack2Packet {
+                ack_number: n,
                 dest_sock_id: self.peer_sock_id,
                 timestamp,
             }));
-            self.ack_pending = false;
         }
         out
     }
 
-    fn retransmit_all_unacked(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
+    fn retransmit_oldest_unacked(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
+        let mut out = Vec::new();
+        if let Some((&seq, pkt)) = self.unacked.iter_mut().next() {
+            pkt.last_sent = now;
+            out.push(Outgoing::Data(DataPacket {
+                seq,
+                dest_sock_id: self.peer_sock_id,
+                timestamp,
+                payload: pkt.payload.clone(),
+            }));
+        }
+        out
+    }
+
+    /// Retransmit every unacked packet (tests / recovery).
+    pub fn retransmit_all_unacked(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
         let mut out = Vec::new();
         for (seq, pkt) in self.unacked.iter_mut() {
             pkt.last_sent = now;
@@ -463,6 +667,11 @@ impl ReliabilityEngine {
     /// Next timer deadline for integrating with socket poll timeouts.
     pub fn next_timer(&self) -> Option<Instant> {
         self.timers.next_deadline()
+    }
+
+    /// Earliest Instant the next *new* data packet may be enqueued (rate pacing).
+    pub fn next_send_deadline(&self) -> Instant {
+        self.next_send_at
     }
 
     /// Encode helper size hint for data.
@@ -541,11 +750,7 @@ mod tests {
         let Outgoing::Data(d) = &pkts[0] else {
             panic!()
         };
-        let ack = AckPacket {
-            ack_seq: seq_add(d.seq, 1),
-            dest_sock_id: 1,
-            timestamp: 2,
-        };
+        let ack = AckPacket::light(seq_add(d.seq, 1), 1, 2);
         let mut buf = [0u8; 16];
         ack.encode(&mut buf).unwrap();
         let _ = a.on_datagram(&buf, now, 2);

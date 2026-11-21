@@ -210,10 +210,17 @@ impl CongestionControl for Udt4Cc {
             return;
         }
 
-        // Congestion avoidance: CWND = A*(RTT+SYN)+16
-        let a = f64::from(self.recv_rate);
-        let cwnd = a / 1_000_000.0 * (self.rtt_us as f64 + UDT_SYN_US as f64) + 16.0;
-        self.set_cwnd(cwnd.max(2.0));
+        // Congestion avoidance: CWND = A*(RTT+SYN)+16 when receiver rate is known.
+        // When recv_rate is still 0 (feedback not wired / no full ACK yet), keep the
+        // existing window — never pin back to 16 (that capped WAN at ~0.55 MiB/s).
+        if self.recv_rate > 0 {
+            let a = f64::from(self.recv_rate);
+            let cwnd = a / 1_000_000.0 * (self.rtt_us as f64 + UDT_SYN_US as f64) + 16.0;
+            self.set_cwnd(cwnd.max(2.0));
+        } else if self.cwnd < self.max_cwnd {
+            // Gentle growth without rate feedback so a post-loss session can recover.
+            self.set_cwnd(self.cwnd + 1.0);
+        }
 
         if self.loss_since_ack {
             self.loss_since_ack = false;
@@ -272,9 +279,17 @@ impl CongestionControl for Udt4Cc {
     fn on_timeout(&mut self) {
         if self.slow_start {
             self.slow_start = false;
+            // Match on_loss exit: seed SND from RTT/CWND rather than 1.125×1µs.
+            if self.recv_rate > 0 {
+                self.set_period(1_000_000.0 / f64::from(self.recv_rate));
+            } else {
+                let denom = self.cwnd.max(1.0);
+                self.set_period((self.rtt_us as f64 + UDT_SYN_US as f64) / denom);
+            }
+        } else {
+            self.set_period(self.period_us * 1.125);
         }
         self.loss_since_ack = true;
-        self.set_period(self.period_us * 1.125);
     }
 
     fn sending_period_us(&self) -> u64 {
@@ -443,6 +458,34 @@ mod tests {
         cc.set_period(800.0);
         cc.on_timeout();
         assert_eq!(cc.sending_period_us(), 900); // 800 * 1.125
+    }
+
+    #[test]
+    fn timeout_in_slow_start_seeds_period_from_rtt() {
+        let mut cc = Udt4Cc::new();
+        cc.set_rtt_us(40_000);
+        cc.set_cwnd(16.0);
+        assert!(cc.slow_start);
+        cc.on_timeout();
+        assert!(!cc.slow_start);
+        // (40000+10000)/16 = 3125
+        assert_eq!(cc.sending_period_us(), 3125);
+    }
+
+    #[test]
+    fn ca_without_recv_rate_does_not_pin_cwnd_at_16() {
+        let mut cc = Udt4Cc::new();
+        let t0 = Instant::now();
+        cc.set_clock(t0);
+        cc.slow_start = false;
+        cc.loss_since_ack = false;
+        cc.set_cwnd(64.0);
+        cc.set_recv_rate(0);
+        cc.set_bandwidth(0);
+        cc.set_rtt_us(50_000);
+        cc.on_ack(100);
+        // Must not collapse back to 16 when feedback is missing.
+        assert!(cc.cwnd_pkts() >= 64, "cwnd={}", cc.cwnd_pkts());
     }
 
     #[test]
