@@ -13,6 +13,11 @@ use crate::wire::{
     peek_is_control, Ack2Packet, AckPacket, DataPacket, NakPacket, DATA_HEADER_LEN,
 };
 
+#[cfg(feature = "blake3-reliability")]
+use crate::blake3_block::{
+    Blake3BlockReceiver, Blake3BlockSender, Blake3RecvOut, BlockSealPacket, HavePacket, WantPacket,
+};
+
 /// Sequence number used on the UDT data path.
 pub type SeqNo = u32;
 
@@ -103,6 +108,15 @@ pub enum Outgoing {
     Ack2(Ack2Packet),
     /// Loss report.
     Nak(NakPacket),
+    /// Blake3 block seal (feature `blake3-reliability`).
+    #[cfg(feature = "blake3-reliability")]
+    BlockSeal(BlockSealPacket),
+    /// Blake3 WANT pull (feature `blake3-reliability`).
+    #[cfg(feature = "blake3-reliability")]
+    Want(WantPacket),
+    /// Blake3 HAVE (feature `blake3-reliability`).
+    #[cfg(feature = "blake3-reliability")]
+    Have(HavePacket),
 }
 
 /// Reliable byte-stream engine (no I/O).
@@ -159,6 +173,12 @@ pub struct ReliabilityEngine {
     pending_ack2: Option<u32>,
     /// ACK numbers we sent → (data ack seq, send time) awaiting ACK2.
     ack_flight: BTreeMap<u32, (SeqNo, Instant)>,
+    /// Blake3 hybrid sender (seals + WANT rexmit store).
+    #[cfg(feature = "blake3-reliability")]
+    b3_tx: Blake3BlockSender,
+    /// Blake3 hybrid receiver (WANT gaps + HAVE after verify).
+    #[cfg(feature = "blake3-reliability")]
+    b3_rx: Blake3BlockReceiver,
 }
 
 impl std::fmt::Debug for ReliabilityEngine {
@@ -231,6 +251,10 @@ impl ReliabilityEngine {
             flow_window_pkts: 16_384,
             pending_ack2: None,
             ack_flight: BTreeMap::new(),
+            #[cfg(feature = "blake3-reliability")]
+            b3_tx: Blake3BlockSender::new(peer_sock_id),
+            #[cfg(feature = "blake3-reliability")]
+            b3_rx: Blake3BlockReceiver::new(peer_sock_id),
         }
     }
 
@@ -365,8 +389,12 @@ impl ReliabilityEngine {
                 seq,
                 dest_sock_id: self.peer_sock_id,
                 timestamp,
-                payload,
+                payload: payload.clone(),
             }));
+            #[cfg(feature = "blake3-reliability")]
+            if let Some(seal) = self.b3_tx.on_data_sent(seq, &payload, timestamp) {
+                out.push(Outgoing::BlockSeal(seal));
+            }
             offset = end;
             slot += period;
             batch += 1;
@@ -410,6 +438,24 @@ impl ReliabilityEngine {
                 Ok(PacketType::Nak) => {
                     if let Ok(nak) = NakPacket::decode(buf) {
                         out.extend(self.on_nak(&nak.lost, now, timestamp));
+                    }
+                }
+                #[cfg(feature = "blake3-reliability")]
+                Ok(PacketType::BlockSeal) => {
+                    if let Ok(seal) = BlockSealPacket::decode(buf) {
+                        out.extend(self.on_b3_seal(&seal, timestamp));
+                    }
+                }
+                #[cfg(feature = "blake3-reliability")]
+                Ok(PacketType::Want) => {
+                    if let Ok(want) = WantPacket::decode(buf) {
+                        out.extend(self.on_b3_want(&want, now, timestamp));
+                    }
+                }
+                #[cfg(feature = "blake3-reliability")]
+                Ok(PacketType::Have) => {
+                    if let Ok(have) = HavePacket::decode(buf) {
+                        let _ = self.b3_tx.on_have(&have);
                     }
                 }
                 _ => {}
@@ -547,12 +593,23 @@ impl ReliabilityEngine {
         out
     }
 
-    fn on_data(&mut self, data: DataPacket, now: Instant, _timestamp: u32) -> Vec<Outgoing> {
+    fn on_data(&mut self, data: DataPacket, now: Instant, #[allow(unused_variables)] timestamp: u32) -> Vec<Outgoing> {
         let seq = seq_norm(data.seq);
         self.note_recv_packet(now);
+        #[cfg(feature = "blake3-reliability")]
+        let b3_out = self
+            .b3_rx
+            .on_data(seq, &data.payload, timestamp);
+        #[cfg(not(feature = "blake3-reliability"))]
+        let _ = timestamp;
         if seq_before(seq, self.recv_next) {
             // duplicate of already delivered — still ACK
             self.ack_pending = true;
+            #[cfg(feature = "blake3-reliability")]
+            {
+                return self.b3_recv_to_outgoing(b3_out);
+            }
+            #[cfg(not(feature = "blake3-reliability"))]
             return Vec::new();
         }
         if seq == self.recv_next {
@@ -569,10 +626,73 @@ impl ReliabilityEngine {
             // gap — record a bounded prefix of missing seqs for NAK
             self.loss_list.insert_range(self.recv_next, seq, 64);
             self.reorder.entry(seq).or_insert(data.payload);
-            self.nak_pending = true;
+            // Hybrid Blake3: WANT after seal replaces NAK for gap pull.
+            #[cfg(not(feature = "blake3-reliability"))]
+            {
+                self.nak_pending = true;
+            }
         }
         self.ack_pending = true;
+        #[cfg(feature = "blake3-reliability")]
+        {
+            return self.b3_recv_to_outgoing(b3_out);
+        }
+        #[cfg(not(feature = "blake3-reliability"))]
         Vec::new()
+    }
+
+    #[cfg(feature = "blake3-reliability")]
+    fn b3_recv_to_outgoing(&self, msgs: Vec<Blake3RecvOut>) -> Vec<Outgoing> {
+        msgs.into_iter()
+            .map(|m| match m {
+                Blake3RecvOut::Want(w) => Outgoing::Want(w),
+                Blake3RecvOut::Have(h) => Outgoing::Have(h),
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "blake3-reliability")]
+    fn on_b3_seal(&mut self, seal: &BlockSealPacket, timestamp: u32) -> Vec<Outgoing> {
+        let msgs = self.b3_rx.on_seal(seal, timestamp);
+        self.b3_recv_to_outgoing(msgs)
+    }
+
+    #[cfg(feature = "blake3-reliability")]
+    fn on_b3_want(
+        &mut self,
+        want: &WantPacket,
+        now: Instant,
+        timestamp: u32,
+    ) -> Vec<Outgoing> {
+        const MAX_WANT_REXMIT: usize = 16;
+        let missing = want.missing_seqs();
+        if !missing.is_empty() {
+            self.cc.set_snd_curr_seq(self.send_next);
+            self.cc.on_loss(&missing);
+        }
+        let mut out = Vec::new();
+        for (seq, payload) in self.b3_tx.on_want(want, MAX_WANT_REXMIT) {
+            // Refresh unacked last_sent when we still hold the packet there.
+            if let Some(pkt) = self.unacked.get_mut(&seq) {
+                pkt.last_sent = now;
+            }
+            out.push(Outgoing::Data(DataPacket {
+                seq,
+                dest_sock_id: self.peer_sock_id,
+                timestamp,
+                payload,
+            }));
+        }
+        if !out.is_empty() {
+            self.arm_rto(now);
+        }
+        out
+    }
+
+    /// Seal any short final Blake3 block (end of stream / flush).
+    #[cfg(feature = "blake3-reliability")]
+    pub fn flush_blake3_seal(&mut self, timestamp: u32) -> Option<Outgoing> {
+        self.b3_tx.flush_final(timestamp).map(Outgoing::BlockSeal)
     }
 
     fn note_recv_packet(&mut self, now: Instant) {
@@ -601,20 +721,28 @@ impl ReliabilityEngine {
     fn flush_control(&mut self, now: Instant, timestamp: u32) -> Vec<Outgoing> {
         let mut out = Vec::new();
         // Cap NAK size so the datagram stays under a typical 1500–8K UDP payload.
-        const MAX_NAK_SEQS: usize = 64;
-        if self.nak_pending && !self.loss_list.is_empty() {
-            let lost: Vec<SeqNo> = self
-                .loss_list
-                .as_slice()
-                .iter()
-                .copied()
-                .take(MAX_NAK_SEQS)
-                .collect();
-            out.push(Outgoing::Nak(NakPacket {
-                lost,
-                dest_sock_id: self.peer_sock_id,
-                timestamp,
-            }));
+        // With blake3-reliability, WANT after seal replaces NAK gap pull.
+        #[cfg(not(feature = "blake3-reliability"))]
+        {
+            const MAX_NAK_SEQS: usize = 64;
+            if self.nak_pending && !self.loss_list.is_empty() {
+                let lost: Vec<SeqNo> = self
+                    .loss_list
+                    .as_slice()
+                    .iter()
+                    .copied()
+                    .take(MAX_NAK_SEQS)
+                    .collect();
+                out.push(Outgoing::Nak(NakPacket {
+                    lost,
+                    dest_sock_id: self.peer_sock_id,
+                    timestamp,
+                }));
+                self.nak_pending = false;
+            }
+        }
+        #[cfg(feature = "blake3-reliability")]
+        {
             self.nak_pending = false;
         }
         if self.ack_pending {
@@ -775,7 +903,11 @@ mod tests {
         let mut buf = vec![0u8; 64];
         let n = d1.encode(&mut buf).unwrap();
         let out = recv.on_datagram(&buf[..n], now, 2);
+        // Default path emits NAK; blake3-reliability replaces NAK with WANT-after-seal.
+        #[cfg(not(feature = "blake3-reliability"))]
         assert!(out.iter().any(|o| matches!(o, Outgoing::Nak(_))));
+        #[cfg(feature = "blake3-reliability")]
+        assert!(!out.iter().any(|o| matches!(o, Outgoing::Nak(_))));
         // Deliver first
         let Outgoing::Data(d0) = &pkts[0] else {
             panic!()

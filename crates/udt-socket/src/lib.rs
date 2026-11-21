@@ -513,6 +513,13 @@ impl UdtSocket {
             timeout
         };
         let deadline = Instant::now() + timeout;
+        // Seal any short final Blake3 block so the peer can HAVE/verify it.
+        #[cfg(feature = "blake3-reliability")]
+        if let Some(rel) = self.rel.as_mut() {
+            if let Some(seal) = rel.flush_blake3_seal(now_ts()) {
+                self.dispatch(vec![seal])?;
+            }
+        }
         loop {
             let empty = self
                 .rel
@@ -609,6 +616,12 @@ impl UdtSocket {
                 Outgoing::Ack(a) => (false, a.encode(&mut wire)?),
                 Outgoing::Ack2(a) => (false, a.encode(&mut wire)?),
                 Outgoing::Nak(n) => (false, n.encode(&mut wire)?),
+                #[cfg(feature = "blake3-reliability")]
+                Outgoing::BlockSeal(s) => (false, s.encode(&mut wire)?),
+                #[cfg(feature = "blake3-reliability")]
+                Outgoing::Want(w) => (false, w.encode(&mut wire)?),
+                #[cfg(feature = "blake3-reliability")]
+                Outgoing::Have(h) => (false, h.encode(&mut wire)?),
             };
             if is_data && self.should_drop_data() {
                 continue; // induced loss — reliability will retransmit

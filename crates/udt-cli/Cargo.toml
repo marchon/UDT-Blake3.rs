@@ -21,3 +21,9 @@ path = "src/udtd.rs"
 
 [dependencies]
 udt-socket = { workspace = true }
+
+[features]
+## Blake3 hybrid (WANT/HAVE) is the measured WAN default for udtcat/udtd.
+default = ["blake3-reliability"]
+## Opt out: `cargo build -p udt-cli --no-default-features` for classic ACK/NAK only.
+blake3-reliability = ["udt-socket/blake3-reliability"]

@@ -12,9 +12,12 @@ cargo build -p udt-core
 
 ```sh
 cargo test -p udt-core
-# Optional hybrid Blake3 64KiB seal + WANT/HAVE pull recovery:
+# Hybrid Blake3 64KiB seal + WANT/HAVE (wired into ReliabilityEngine when on):
 cargo test -p udt-core --features blake3-reliability
 ```
+
+`udt-cli` enables `blake3-reliability` by default; `udt-core` / `udt-socket`
+keep it opt-in.
 
 ## Contributing
 

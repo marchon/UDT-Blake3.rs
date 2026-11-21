@@ -42,6 +42,8 @@ pub struct BlockSealPacket {
     pub first_seq: SeqNo,
     /// Payload bytes covered (≤ [`BLAKE3_BLOCK_BYTES`]; last block may be short).
     pub nbytes: u32,
+    /// Exact packet count in the block (stored in header additional-info).
+    pub pkt_count: u32,
     /// Destination socket id.
     pub dest_sock_id: u32,
     /// Timestamp.
@@ -60,7 +62,7 @@ impl BlockSealPacket {
             });
         }
         buf[0..4].copy_from_slice(&encode_control_word0(CTRL_BLOCK_SEAL).to_be_bytes());
-        buf[4..8].copy_from_slice(&0u32.to_be_bytes());
+        buf[4..8].copy_from_slice(&self.pkt_count.to_be_bytes());
         buf[8..12].copy_from_slice(&self.timestamp.to_be_bytes());
         buf[12..16].copy_from_slice(&self.dest_sock_id.to_be_bytes());
         buf[16..20].copy_from_slice(&self.block_id.to_be_bytes());
@@ -89,6 +91,7 @@ impl BlockSealPacket {
         let mut digest = [0u8; 32];
         digest.copy_from_slice(&buf[28..60]);
         Ok(Self {
+            pkt_count: u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]),
             timestamp: u32::from_be_bytes([buf[8], buf[9], buf[10], buf[11]]),
             dest_sock_id: u32::from_be_bytes([buf[12], buf[13], buf[14], buf[15]]),
             block_id: u32::from_be_bytes([buf[16], buf[17], buf[18], buf[19]]),
@@ -235,7 +238,9 @@ struct StoredBlock {
     first_seq: SeqNo,
     /// Packets in send order (index 0 = first_seq).
     packets: Vec<Vec<u8>>,
+    #[allow(dead_code)]
     digest: [u8; 32],
+    #[allow(dead_code)]
     nbytes: usize,
 }
 
@@ -298,6 +303,7 @@ impl Blake3BlockSender {
         let block_id = self.next_block_id;
         self.next_block_id = self.next_block_id.wrapping_add(1);
         let nbytes = plain.len();
+        let pkt_count = self.open_packets.len() as u32;
         self.store.insert(
             block_id,
             StoredBlock {
@@ -313,6 +319,7 @@ impl Blake3BlockSender {
             block_id,
             first_seq: first,
             nbytes: nbytes as u32,
+            pkt_count,
             dest_sock_id: self.peer_sock_id,
             timestamp,
             digest,
@@ -377,6 +384,8 @@ pub enum Blake3RecvOut {
 pub struct Blake3BlockReceiver {
     peer_sock_id: u32,
     blocks: BTreeMap<u32, RecvBlock>,
+    /// Data that arrived before its block seal (seq → payload).
+    orphans: BTreeMap<SeqNo, Vec<u8>>,
     /// Verified payloads waiting for in-order delivery.
     verified: BTreeMap<u32, Vec<u8>>,
     deliver_next: u32,
@@ -389,42 +398,64 @@ impl Blake3BlockReceiver {
         Self {
             peer_sock_id,
             blocks: BTreeMap::new(),
+            orphans: BTreeMap::new(),
             verified: BTreeMap::new(),
             deliver_next: 0,
             delivered: Vec::new(),
         }
     }
 
-    /// Ingest a seal; may immediately WANT if no data yet.
+    /// Ingest a seal; drain orphans into the new block, then WANT or HAVE.
     pub fn on_seal(&mut self, seal: &BlockSealPacket, timestamp: u32) -> Vec<Blake3RecvOut> {
-        // Estimate packet count from nbytes / typical MSS; sender stores exact
-        // packet vector — receiver learns lengths as packets arrive. Use ceil
-        // of nbytes/mss capped at 64; refine when all slots known via nbytes.
-        let mss = 1400u32;
-        let expected_pkts = ((seal.nbytes + mss - 1) / mss).clamp(1, 64);
+        let expected_pkts = seal.pkt_count.clamp(1, WANT_BITMAP_BITS as u32);
+        let mut slots = BTreeMap::new();
+        let first = seq_norm(seal.first_seq);
+        // Claim matching orphans so we do not WANT packets already received.
+        let mut claim: Vec<SeqNo> = Vec::new();
+        for i in 0..expected_pkts {
+            let seq = seq_add(first, i);
+            if self.orphans.contains_key(&seq) {
+                claim.push(seq);
+            }
+        }
+        for seq in claim {
+            if let Some(payload) = self.orphans.remove(&seq) {
+                let idx = seq_norm(seq).wrapping_sub(first);
+                slots.insert(idx, payload);
+            }
+        }
+        // Bound orphan map growth if seals are lost.
+        while self.orphans.len() > 256 {
+            if let Some(k) = self.orphans.keys().next().copied() {
+                self.orphans.remove(&k);
+            } else {
+                break;
+            }
+        }
         self.blocks.insert(
             seal.block_id,
             RecvBlock {
-                first_seq: seal.first_seq,
+                first_seq: first,
                 nbytes: seal.nbytes as usize,
                 digest: seal.digest,
-                slots: BTreeMap::new(),
+                slots,
                 expected_pkts,
             },
         );
         self.poll_block(seal.block_id, timestamp)
     }
 
-    /// Ingest data for a known sealed block (ignore if no seal yet).
+    /// Ingest data for a known sealed block, or park as orphan until seal.
     pub fn on_data(
         &mut self,
         seq: SeqNo,
         payload: &[u8],
         timestamp: u32,
     ) -> Vec<Blake3RecvOut> {
+        let seq = seq_norm(seq);
         let mut hit = None;
         for (bid, block) in self.blocks.iter_mut() {
-            let idx = seq_norm(seq).wrapping_sub(seq_norm(block.first_seq));
+            let idx = seq.wrapping_sub(seq_norm(block.first_seq));
             if idx < block.expected_pkts {
                 block.slots.insert(idx, payload.to_vec());
                 hit = Some(*bid);
@@ -433,7 +464,17 @@ impl Blake3BlockReceiver {
         }
         match hit {
             Some(bid) => self.poll_block(bid, timestamp),
-            None => Vec::new(),
+            None => {
+                self.orphans.insert(seq, payload.to_vec());
+                while self.orphans.len() > 256 {
+                    if let Some(k) = self.orphans.keys().next().copied() {
+                        self.orphans.remove(&k);
+                    } else {
+                        break;
+                    }
+                }
+                Vec::new()
+            }
         }
     }
 
@@ -531,6 +572,7 @@ mod tests {
             block_id: 3,
             first_seq: 100,
             nbytes: 64000,
+            pkt_count: 46,
             dest_sock_id: 9,
             timestamp: 1,
             digest: [0xAB; 32],
@@ -670,17 +712,18 @@ mod tests {
         let good = blake3_digest(&plain);
         let mut bad = good;
         bad[0] ^= 0xff;
+        let expected = ((BLAKE3_BLOCK_BYTES as u32 + 1399) / 1400).clamp(1, 64);
         let seal = BlockSealPacket {
             block_id: 0,
             first_seq: 0,
             nbytes: BLAKE3_BLOCK_BYTES as u32,
+            pkt_count: expected,
             dest_sock_id: 1,
             timestamp: 1,
             digest: bad,
         };
         let _ = rx.on_seal(&seal, 1);
         // Feed enough packets to satisfy expected_pkts count.
-        let expected = ((BLAKE3_BLOCK_BYTES as u32 + 1399) / 1400).clamp(1, 64);
         for i in 0..expected {
             let _ = rx.on_data(i, &payload, 2);
         }

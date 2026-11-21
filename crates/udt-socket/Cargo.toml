@@ -16,3 +16,5 @@ socket2 = { workspace = true }
 [features]
 default = ["tokio-rt"]
 tokio-rt = ["dep:tokio"]
+## Wire Blake3 64 KiB seal + WANT/HAVE through the socket path.
+blake3-reliability = ["udt-core/blake3-reliability"]

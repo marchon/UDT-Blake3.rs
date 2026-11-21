@@ -1,16 +1,44 @@
 # Blake3 realtime validation vs ACK/NAK — design sketch
 
-**Status:** prototype landed (feature `blake3-reliability`, off by default)  
+**Status:** wired + WAN A/B measured; **`udt-cli` default-on**, core/socket opt-in  
 **Context:** WAN ISO path local→70.88.205.138; UDT **5.45 MiB/s**, SFTP **6.51 MiB/s** (commit `cf4874a`).  
 **Question:** Can Blake3 realtime validation replace ACK/NAK, with missed units re-requested and rebuilt?
 
 ## Prototype (this tree)
 
-- Crate feature: `udt-core/blake3-reliability` → module [`blake3_block`](../../crates/udt-core/src/blake3_block.rs)
+- Crate feature: `udt-core/blake3-reliability` → module [`blake3_block`](../../crates/udt-core/src/blake3_block.rs); also `udt-socket` / `udt-cli` features of the same name
 - Wire: `BlockSeal` `0x10`, `Want` `0x11`, `Have` `0x12` (experimental; not UDT4)
 - APIs: `Blake3BlockSender` / `Blake3BlockReceiver` — seal every 64 KiB, WANT bitmap gaps, HAVE after Blake3 verify
-- **Not yet wired** into `ReliabilityEngine` / `udtcat` (ACK/NAK path unchanged when feature off)
+- **Wired** into `ReliabilityEngine` + socket `dispatch` when the feature is on: light ACK kept for CC/delivery; NAK suppressed; WANT after seal for gap pull; HAVE frees sender block store; orphan buffer avoids full-block re-WANT for data that arrived before the seal
 - Enable tests: `cargo test -p udt-core --features blake3-reliability`
+- Build probe path: `cargo build -p udt-cli --release --features blake3-reliability` (both ends must match)
+
+## WAN A/B (local → 70.88.205.138:19000, `wan_probe`, MSS 1400, 16 MiB buffers)
+
+| Build | Size | Run | Rate (MiB/s) | Final period (µs) | Elapsed |
+| --- | --- | --- | --- | --- | --- |
+| baseline (ACK/NAK) | 8 MiB | 1 | **4.257** | 161 | 1.88 s |
+| blake3 hybrid | 8 MiB | 1 | **3.813** | 155 | 2.10 s |
+| baseline | 32 MiB | 1 | **5.523** | 152 | 5.79 s |
+| baseline | 32 MiB | 2 | **4.949** | 180 | 6.47 s |
+| blake3 hybrid | 32 MiB | 1 | **5.717** | 111 | 5.60 s |
+| blake3 hybrid | 32 MiB | 2 | **5.673** | 108 | 5.64 s |
+| baseline | **1 GiB** | 1 | **5.376** | 173 | 190.5 s |
+| blake3 hybrid | **1 GiB** | 1 | **7.435** | 112 | 137.7 s |
+| baseline | **~4 GB ISO** | 1 | **5.331** | — | 743.2 s |
+| blake3 hybrid | **~4 GB ISO** | 1 | **6.792** | — | 583.4 s |
+| SFTP (same day) | **~4 GB ISO** | 1 | **6.529** | — | 606.9 s |
+
+Logs: `artifacts/bench-iso/blake3-ab-*.log`, `blake3-iso-*.log`, `COMPARISON-4GB-blake3.md`.
+
+**Read:**
+
+- Short (8 MiB): Blake3 ~10% slower (seal/WANT startup tax).
+- Medium (32 MiB): flat-to-slight Blake3 edge; noisy.
+- **Long (1 GiB): Blake3 +38%** (7.435 vs 5.376 MiB/s).
+- **Full ISO: Blake3 6.792 MiB/s vs baseline 5.331 (+27%) and vs SFTP 6.529 (+4%)** — first UDT win over SFTP on this path.
+- Hypothesis “cleaner WANT / fewer NAK storms helps long flow” is **supported**.
+- **`udt-cli` default features now enable `blake3-reliability`** (both ends must match). `udt-core` / `udt-socket` keep the feature opt-in; build CLI with `--no-default-features` for classic ACK/NAK.
 
 ## 1. What “Blake3 instead of ACK/NAK” can mean
 
